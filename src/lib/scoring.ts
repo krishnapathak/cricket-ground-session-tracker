@@ -2,6 +2,7 @@ import {
   BattingOutcome,
   BowlingOutcome,
   Delivery,
+  DeliveryModifier,
   GuidedRoundRobinState,
   Over,
   Player,
@@ -32,6 +33,9 @@ export function createPlayer(name: string): Player {
     badBalls: 0,
     wicketsOnGoodBalls: 0,
     wicketsOnBadBalls: 0,
+    wrongShots: 0,
+    ballBeatsFaced: 0,
+    ballBeatBonuses: 0,
     argumentsCount: 0,
     conductPenalty: 0,
     totalSessionScore: 0,
@@ -137,22 +141,27 @@ export function getBowlingPoints(outcome: BowlingOutcome) {
     case "B":
       return 0;
     case "GW":
-      return 2;
+      return 6;
     case "BW":
-      return 1;
+      return 5;
   }
 }
 
-export function getBattingDeltas(outcome: BattingOutcome) {
-  if (outcome === "W") {
-    return { runsDelta: 0, penaltyDelta: -5, dismissalsDelta: 1 };
-  }
+export function getBattingDeltas(outcome: BattingOutcome, modifier: DeliveryModifier | null) {
+  const dismissalPenalty = outcome === "W" ? 5 : 0;
+  const wrongShotPenalty = modifier === "wrong_shot" ? 2 : 0;
+  const ballBeatPenalty = modifier === "ball_beat" ? 1 : 0;
 
-  return { runsDelta: outcome, penaltyDelta: 0, dismissalsDelta: 0 };
+  return {
+    runsDelta: outcome === "W" ? 0 : outcome,
+    dismissalsDelta: outcome === "W" ? 1 : 0,
+    penaltyDelta: -(dismissalPenalty + wrongShotPenalty + ballBeatPenalty),
+  };
 }
 
 function recalculatePlayer(player: Player) {
-  player.battingNetScore = player.battingRuns - player.battingDismissals * 5;
+  player.battingNetScore =
+    player.battingRuns - player.battingDismissals * 5 - player.wrongShots * 2 - player.ballBeatsFaced;
   player.conductPenalty = player.argumentsCount * 2;
   player.totalSessionScore =
     player.bowlingPoints + player.battingNetScore - player.conductPenalty;
@@ -169,6 +178,9 @@ function createPlayerStatReset(player: Player): Player {
     badBalls: 0,
     wicketsOnGoodBalls: 0,
     wicketsOnBadBalls: 0,
+    wrongShots: 0,
+    ballBeatsFaced: 0,
+    ballBeatBonuses: 0,
     conductPenalty: 0,
     totalSessionScore: 0,
   };
@@ -228,8 +240,20 @@ function applyDeliveryToPlayers(players: Player[], delivery: Delivery) {
     bowler.wicketsOnBadBalls += 1;
   }
 
+  if (delivery.modifier === "ball_beat") {
+    bowler.ballBeatBonuses += 1;
+  }
+
   batter.battingRuns += delivery.battingRunsDelta;
   batter.battingDismissals += delivery.battingOutcome === "W" ? 1 : 0;
+
+  if (delivery.modifier === "wrong_shot") {
+    batter.wrongShots += 1;
+  }
+
+  if (delivery.modifier === "ball_beat") {
+    batter.ballBeatsFaced += 1;
+  }
 
   recalculatePlayer(bowler);
   if (batter.id !== bowler.id) {
@@ -256,12 +280,13 @@ function rebuildSession(session: Session, deliveries: Delivery[]) {
   const progress = getProgressFromDeliveries(deliveries.length, session.ballsPerOver);
   const totalBalls = session.totalOvers * session.ballsPerOver;
   const isCompleted = deliveries.length >= totalBalls;
-  const guidedAssignment = session.mode === "guided_round_robin"
-    ? getGuidedAssignmentForDeliveryCount(session, deliveries.length)
-    : {
-        activeBowlerId: session.activeBowlerId,
-        activeBatterId: session.activeBatterId,
-      };
+  const guidedAssignment =
+    session.mode === "guided_round_robin"
+      ? getGuidedAssignmentForDeliveryCount(session, deliveries.length)
+      : {
+          activeBowlerId: session.activeBowlerId,
+          activeBatterId: session.activeBatterId,
+        };
 
   return {
     ...session,
@@ -284,6 +309,7 @@ export function recordDelivery(
     batterId: string;
     bowlingOutcome: BowlingOutcome;
     battingOutcome: BattingOutcome;
+    modifier: DeliveryModifier | null;
   },
 ) {
   if (
@@ -293,8 +319,10 @@ export function recordDelivery(
     return session;
   }
 
-  const bowlingPoints = getBowlingPoints(payload.bowlingOutcome);
-  const battingDelta = getBattingDeltas(payload.battingOutcome);
+  const battingOutcome =
+    payload.bowlingOutcome === "GW" || payload.bowlingOutcome === "BW" ? "W" : payload.battingOutcome;
+  const bowlingPoints = getBowlingPoints(payload.bowlingOutcome) + (payload.modifier === "ball_beat" ? 1 : 0);
+  const battingDelta = getBattingDeltas(battingOutcome, payload.modifier);
   const delivery: Delivery = {
     id: createId(),
     overNumber: session.currentOverNumber,
@@ -303,7 +331,8 @@ export function recordDelivery(
     bowlerId: payload.bowlerId,
     batterId: payload.batterId,
     bowlingOutcome: payload.bowlingOutcome,
-    battingOutcome: payload.battingOutcome,
+    battingOutcome,
+    modifier: payload.modifier,
     bowlingPointsAwarded: bowlingPoints,
     battingRunsDelta: battingDelta.runsDelta,
     battingPenaltyDelta: battingDelta.penaltyDelta,
@@ -479,6 +508,24 @@ export function resumeSession(session: Session) {
   return resumed.mode === "guided_round_robin" ? syncGuidedAssignments(resumed) : resumed;
 }
 
+export function formatBowlerTimelineItem(delivery: Delivery) {
+  return delivery.modifier === "ball_beat"
+    ? `${delivery.bowlingOutcome}+BB`
+    : delivery.bowlingOutcome;
+}
+
+export function formatBatterTimelineItem(delivery: Delivery) {
+  if (delivery.modifier === "wrong_shot") {
+    return `${delivery.battingOutcome}+WS`;
+  }
+
+  if (delivery.modifier === "ball_beat") {
+    return `${delivery.battingOutcome}+BB`;
+  }
+
+  return String(delivery.battingOutcome);
+}
+
 export function getPlayerAnalytics(session: Session): PlayerAnalytics[] {
   const enriched = session.players.map((player) => {
     const totalBallsBowled =
@@ -486,10 +533,10 @@ export function getPlayerAnalytics(session: Session): PlayerAnalytics[] {
     const goodBallDeliveries = player.goodBalls + player.wicketsOnGoodBalls;
     const bowlerTimeline = session.deliveries
       .filter((delivery) => delivery.bowlerId === player.id)
-      .map((delivery) => delivery.bowlingOutcome);
+      .map(formatBowlerTimelineItem);
     const batterTimeline = session.deliveries
       .filter((delivery) => delivery.batterId === player.id)
-      .map((delivery) => String(delivery.battingOutcome));
+      .map(formatBatterTimelineItem);
 
     return {
       ...player,

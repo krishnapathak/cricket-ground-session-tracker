@@ -594,3 +594,73 @@ export interface Session {
 
 - Must support a `Swap Roles` helper for manual verification workflows.
 - Must keep the existing manual scorer intact for ad hoc or non-structured practice sessions.
+
+## Delivery Rules Update
+
+### Revised Wicket Scoring
+
+The wicket scoring model is now:
+
+- `GW` (Wicket on Good Ball): `+6` to bowler
+- `BW` (Wicket on Bad Ball): `+5` to bowler
+- Every dismissal still applies `-5` to the batter
+
+#### Wicket Input Rule
+
+- Selecting `GW` or `BW` must automatically set the batting outcome to `W`
+- In the live scoring UI, wicket deliveries keep batting locked to dismissal for that ball
+
+### Wrong Shot Rule
+
+- `Wrong Shot` applies `-2` points to the batter
+- Wrong shot can occur on a scoring shot or on a dismissal ball
+
+### Ball Beat Rule
+
+- `Ball Beat` applies `-1` point to the batter
+- `Ball Beat` applies `+1` point to the bowler
+
+### Modifier Exclusivity
+
+- `Wrong Shot` and `Ball Beat` are mutually exclusive on the same delivery
+- A delivery may have zero or one modifier only
+
+## Delivery Model Update
+
+Each delivery now supports one optional modifier.
+
+```ts
+export type DeliveryModifier = "wrong_shot" | "ball_beat";
+
+export interface Delivery {
+  modifier: DeliveryModifier | null;
+}
+```
+
+## Live Scoring UX Update
+
+### Ball Composer
+
+The live scorer now uses an explicit record step instead of auto-saving a ball immediately after two selections.
+
+#### Ball Entry Flow
+
+1. Select bowling outcome
+2. Select batting outcome
+3. Optionally select one modifier
+4. Tap `Record Ball`
+
+### Input Rules
+
+- `GW` and `BW` auto-fill the batting result as dismissal
+- `Wrong Shot` and `Ball Beat` behave as toggle buttons
+- Selecting one modifier replaces the other because they are mutually exclusive
+- A `Clear Selection` action resets the pending ball
+
+## Analytics Update
+
+The summary report now includes:
+
+- Wrong shots per batter
+- Ball beats faced per batter
+- Ball beat bonuses earned per bowler
