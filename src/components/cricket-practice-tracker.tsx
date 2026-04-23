@@ -49,19 +49,42 @@ import {
   BattingOutcome,
   BowlingOutcome,
   DeliveryModifier,
+  OutType,
   PendingDelivery,
   Session,
   SessionMode,
+  ShotType,
 } from "@/lib/types";
 
-const bowlingOptions: BowlingOutcome[] = ["G", "B", "GW", "BW"];
+const bowlingOptions: BowlingOutcome[] = ["G", "B", "GW", "BW", "WD"];
 const battingOptions: BattingOutcome[] = [0, 1, 2, 3, 4, 5, 6, "W"];
+const shotTypes: Array<{ label: string; value: ShotType }> = [
+  { label: "Drive", value: "drive" },
+  { label: "Pull", value: "pull" },
+  { label: "Lofted", value: "lofted" },
+  { label: "Punch", value: "punch" },
+  { label: "Cut", value: "cut" },
+  { label: "Flick", value: "flick" },
+  { label: "Edge", value: "edge" },
+  { label: "Others", value: "others" },
+];
+const outTypes: Array<{ label: string; value: OutType }> = [
+  { label: "Bowled", value: "bowled" },
+  { label: "Caught Out", value: "caught_out" },
+  { label: "Caught & Bowled", value: "caught_and_bowled" },
+  { label: "Stumped", value: "stumped" },
+  { label: "LBW", value: "lbw" },
+  { label: "Run Out", value: "run_out" },
+  { label: "Hit Wicket", value: "hit_wicket" },
+  { label: "Others", value: "others" },
+];
 
 const buttonTone: Record<string, string> = {
   G: "border-glow/50 bg-glow/20 text-glow",
   B: "border-slate-500 bg-slate-500/15 text-slate-100",
   GW: "border-aqua/50 bg-aqua/20 text-aqua",
   BW: "border-amber/50 bg-amber/20 text-amber",
+  WD: "border-coral/50 bg-coral/20 text-coral",
   W: "border-coral/50 bg-coral/20 text-coral",
   wrong_shot: "border-coral/50 bg-coral/20 text-coral",
   ball_beat: "border-aqua/50 bg-aqua/20 text-aqua",
@@ -92,6 +115,14 @@ function modifierLabel(modifier: DeliveryModifier | null) {
   return "No Modifier";
 }
 
+function shotTypeLabel(shotType: ShotType | null) {
+  return shotTypes.find((entry) => entry.value === shotType)?.label ?? "No Shot Type";
+}
+
+function outTypeLabel(outType: OutType | null) {
+  return outTypes.find((entry) => entry.value === outType)?.label ?? "No Out Type";
+}
+
 export function CricketPracticeTracker() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionHistory, setSessionHistory] = useState<Session[]>([]);
@@ -105,6 +136,8 @@ export function CricketPracticeTracker() {
     bowlingOutcome: null,
     battingOutcome: null,
     modifier: null,
+    shotType: null,
+    outType: null,
   });
   const [setupError, setSetupError] = useState("");
 
@@ -125,7 +158,7 @@ export function CricketPracticeTracker() {
   const analytics = session ? getPlayerAnalytics(session) : [];
   const guidedState = session ? getGuidedRoundRobinState(session) : null;
   const completedBalls = session
-    ? Math.min(session.deliveries.length, session.totalOvers * session.ballsPerOver)
+    ? Math.min(session.deliveries.filter((delivery) => delivery.countsAsLegalBall).length, session.totalOvers * session.ballsPerOver)
     : 0;
   const sessionProgress = session
     ? Math.min((completedBalls / (session.totalOvers * session.ballsPerOver)) * 100, 100)
@@ -141,20 +174,32 @@ export function CricketPracticeTracker() {
     [session],
   );
   const overRotationReady = Boolean(
-    session && session.status !== "completed" && session.mode === "manual" && session.deliveries.length > 0 && session.currentBallInOver === 1,
+    session && session.status !== "completed" && session.mode === "manual" && session.deliveries.some((delivery) => delivery.countsAsLegalBall) && session.currentBallInOver === 1,
   );
   const guidedTotalOversPreview =
     mode === "guided_round_robin"
       ? Math.max(playerNames.map((name) => name.trim()).filter(Boolean).length, 0) * Math.max(Number(oversPerBatter) || 0, 0)
       : 0;
   const wicketLocked = pendingDelivery.bowlingOutcome === "GW" || pendingDelivery.bowlingOutcome === "BW";
-  const canRecordBall = Boolean(pendingDelivery.bowlingOutcome && pendingDelivery.battingOutcome !== null);
+  const wideLocked = pendingDelivery.bowlingOutcome === "WD";
+  const ballBeatLocked = pendingDelivery.modifier === "ball_beat";
+  const runsLocked = wicketLocked || wideLocked || ballBeatLocked;
+  const requiresOutType = wicketLocked;
+  const canSelectModifier = !wideLocked;
+  const canSelectShotType = pendingDelivery.battingOutcome === 4 && !wideLocked;
+  const canRecordBall = Boolean(
+    pendingDelivery.bowlingOutcome &&
+      pendingDelivery.battingOutcome !== null &&
+      (!requiresOutType || pendingDelivery.outType),
+  );
 
   function resetPendingDelivery() {
     setPendingDelivery({
       bowlingOutcome: null,
       battingOutcome: null,
       modifier: null,
+      shotType: null,
+      outType: null,
     });
   }
 
@@ -236,28 +281,80 @@ export function CricketPracticeTracker() {
   }
 
   function handleBowlingSelect(outcome: BowlingOutcome) {
-    setPendingDelivery((current) => ({
-      ...current,
-      bowlingOutcome: outcome,
-      battingOutcome: outcome === "GW" || outcome === "BW" ? "W" : current.battingOutcome,
-    }));
+    setPendingDelivery((current) => {
+      const isWicket = outcome === "GW" || outcome === "BW";
+      const isWide = outcome === "WD";
+
+      return {
+        ...current,
+        bowlingOutcome: outcome,
+        battingOutcome: isWicket ? "W" : isWide ? 0 : current.modifier === "ball_beat" ? 0 : current.battingOutcome,
+        modifier: isWide ? null : current.modifier,
+        shotType: isWide || current.battingOutcome !== 4 ? null : current.shotType,
+        outType: isWicket ? current.outType : null,
+      };
+    });
   }
 
   function handleBattingSelect(outcome: BattingOutcome) {
-    if (wicketLocked && outcome !== "W") {
+    if (runsLocked && !(wicketLocked && outcome === "W")) {
       return;
     }
 
     setPendingDelivery((current) => ({
       ...current,
       battingOutcome: outcome,
+      shotType: outcome === 4 ? current.shotType : null,
+      outType: outcome === "W" && wicketLocked ? current.outType : current.outType,
     }));
   }
 
   function handleModifierToggle(modifier: DeliveryModifier) {
+    if (!canSelectModifier) {
+      return;
+    }
+
+    setPendingDelivery((current) => {
+      const nextModifier = current.modifier === modifier ? null : modifier;
+
+      return {
+        ...current,
+        modifier: nextModifier,
+        battingOutcome:
+          nextModifier === "ball_beat"
+            ? 0
+            : current.bowlingOutcome === "GW" || current.bowlingOutcome === "BW"
+              ? "W"
+              : current.bowlingOutcome === "WD"
+                ? 0
+                : current.battingOutcome,
+        shotType:
+          nextModifier === "ball_beat" || current.battingOutcome !== 4
+            ? null
+            : current.shotType,
+      };
+    });
+  }
+
+  function handleShotTypeSelect(shotType: ShotType) {
+    if (!canSelectShotType) {
+      return;
+    }
+
     setPendingDelivery((current) => ({
       ...current,
-      modifier: current.modifier === modifier ? null : modifier,
+      shotType: current.shotType === shotType ? null : shotType,
+    }));
+  }
+
+  function handleOutTypeSelect(outType: OutType) {
+    if (!requiresOutType) {
+      return;
+    }
+
+    setPendingDelivery((current) => ({
+      ...current,
+      outType: current.outType === outType ? null : outType,
     }));
   }
 
@@ -267,7 +364,13 @@ export function CricketPracticeTracker() {
     }
 
     setSession((current) => {
-      if (!current || !current.activeBowlerId || !current.activeBatterId || !pendingDelivery.bowlingOutcome || pendingDelivery.battingOutcome === null) {
+      if (
+        !current ||
+        !current.activeBowlerId ||
+        !current.activeBatterId ||
+        !pendingDelivery.bowlingOutcome ||
+        pendingDelivery.battingOutcome === null
+      ) {
         return current;
       }
 
@@ -277,6 +380,8 @@ export function CricketPracticeTracker() {
         bowlingOutcome: pendingDelivery.bowlingOutcome,
         battingOutcome: pendingDelivery.battingOutcome,
         modifier: pendingDelivery.modifier,
+        shotType: pendingDelivery.shotType,
+        outType: pendingDelivery.outType,
       });
     });
     resetPendingDelivery();
@@ -445,17 +550,17 @@ export function CricketPracticeTracker() {
                   <InfoCard
                     icon={<Target className="h-5 w-5" />}
                     title="Bowling"
-                    lines={["G = +1", "B = 0", "GW = +6", "BW = +5", "Ball Beat = +1 to bowler"]}
+                    lines={["G = +1", "B = 0", "GW = +6", "BW = +5", "WD = -1 and not a legal ball", "Ball Beat = +1 to bowler"]}
                   />
                   <InfoCard
                     icon={<BadgeIndianRupee className="h-5 w-5" />}
                     title="Batting"
-                    lines={["Runs are cumulative", "W = -5", "Wrong Shot = -2", "Ball Beat = -1"]}
+                    lines={["Runs are cumulative", "W = -5", "Wrong Shot = -2", "Ball Beat = -1", "Wide keeps batter at 0"]}
                   />
                   <InfoCard
                     icon={<ShieldAlert className="h-5 w-5" />}
-                    title="Conduct"
-                    lines={["Argument = -2 total session points", "Wrong Shot and Ball Beat are mutually exclusive"]}
+                    title="Extras & Outs"
+                    lines={["Wrong Shot and Ball Beat are mutually exclusive", "Wicket balls require out type", "Four runs can capture shot type"]}
                   />
                 </div>
               </aside>
@@ -482,7 +587,7 @@ export function CricketPracticeTracker() {
                               {savedSession.title}
                             </p>
                             <p className="mt-1 text-sm text-slate-400">
-                              {savedSession.players.length} players • {savedSession.totalOvers} overs • {savedSession.deliveries.length} balls
+                              {savedSession.players.length} players • {savedSession.totalOvers} overs • {savedSession.deliveries.length} events
                             </p>
                             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-500">
                               {savedSession.mode === "guided_round_robin" ? "guided" : "manual"} • {savedSession.status} • updated {formatSessionDate(savedSession.updatedAt)}
@@ -540,7 +645,7 @@ export function CricketPracticeTracker() {
                 {session.title}
               </h1>
               <p className="mt-2 text-sm text-slate-400">
-                {session.players.length} players • {session.totalOvers} overs • {session.deliveries.length} balls recorded • {session.mode === "guided_round_robin" ? "Guided Round Robin" : "Manual"}
+                {session.players.length} players • {session.totalOvers} overs • {session.deliveries.length} recorded events • {session.mode === "guided_round_robin" ? "Guided Round Robin" : "Manual"}
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -629,7 +734,10 @@ export function CricketPracticeTracker() {
                       ? session.deliveries
                           .filter((delivery) => delivery.bowlerId === activeBowler.id)
                           .slice(-6)
-                          .map((delivery) => `${delivery.bowlingOutcome}${delivery.modifier === "ball_beat" ? " + BB" : ""}`)
+                          .map((delivery) => {
+                            const extras = [delivery.modifier === "ball_beat" ? "BB" : null, delivery.outType ? outTypeLabel(delivery.outType) : null].filter(Boolean);
+                            return [delivery.bowlingOutcome, ...extras].join(" + ");
+                          })
                           .join(" • ") || "No balls yet"
                       : "No bowler selected"
                   }
@@ -652,7 +760,15 @@ export function CricketPracticeTracker() {
                       ? session.deliveries
                           .filter((delivery) => delivery.batterId === activeBatter.id)
                           .slice(-6)
-                          .map((delivery) => `${delivery.battingOutcome}${delivery.modifier === "wrong_shot" ? " + WS" : delivery.modifier === "ball_beat" ? " + BB" : ""}`)
+                          .map((delivery) => {
+                            const extras = [
+                              delivery.modifier === "wrong_shot" ? "WS" : null,
+                              delivery.modifier === "ball_beat" ? "BB" : null,
+                              delivery.shotType ? shotTypeLabel(delivery.shotType) : null,
+                              delivery.outType ? outTypeLabel(delivery.outType) : null,
+                            ].filter(Boolean);
+                            return [String(delivery.battingOutcome), ...extras].join(" + ");
+                          })
                           .join(" • ") || "No balls yet"
                       : "No batter selected"
                   }
@@ -664,11 +780,11 @@ export function CricketPracticeTracker() {
               <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
                 <Panel title="Ball Input" icon={<Play className="h-5 w-5" />}>
                   <p className="text-sm text-slate-400">
-                    Build the current ball by selecting the bowling result, batting result, and one optional modifier, then record it.
+                    Build the current ball by selecting the bowling result, batting result, and any allowed extra details, then record it.
                   </p>
                   <div className="mt-5">
                     <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Bowling Outcome</p>
-                    <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
                       {bowlingOptions.map((option) => (
                         <button
                           key={option}
@@ -697,7 +813,7 @@ export function CricketPracticeTracker() {
                             pendingDelivery.battingOutcome === option && "ring-2 ring-white/70",
                           )}
                           onClick={() => handleBattingSelect(option)}
-                          disabled={wicketLocked && option !== "W"}
+                          disabled={runsLocked && !(wicketLocked && option === "W")}
                         >
                           {option}
                         </button>
@@ -710,22 +826,24 @@ export function CricketPracticeTracker() {
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <button
                         className={cn(
-                          "rounded-[20px] border px-4 py-4 text-left transition hover:-translate-y-0.5",
+                          "rounded-[20px] border px-4 py-4 text-left transition hover:-translate-y-0.5 disabled:opacity-40",
                           buttonTone.wrong_shot,
                           pendingDelivery.modifier === "wrong_shot" && "ring-2 ring-white/70",
                         )}
                         onClick={() => handleModifierToggle("wrong_shot")}
+                        disabled={!canSelectModifier}
                       >
                         <span className="block font-semibold">Wrong Shot</span>
                         <span className="text-sm opacity-80">-2 to batter</span>
                       </button>
                       <button
                         className={cn(
-                          "rounded-[20px] border px-4 py-4 text-left transition hover:-translate-y-0.5",
+                          "rounded-[20px] border px-4 py-4 text-left transition hover:-translate-y-0.5 disabled:opacity-40",
                           buttonTone.ball_beat,
                           pendingDelivery.modifier === "ball_beat" && "ring-2 ring-white/70",
                         )}
                         onClick={() => handleModifierToggle("ball_beat")}
+                        disabled={!canSelectModifier}
                       >
                         <span className="block font-semibold">Ball Beat</span>
                         <span className="text-sm opacity-80">+1 bowler, -1 batter</span>
@@ -733,8 +851,52 @@ export function CricketPracticeTracker() {
                     </div>
                   </div>
 
+                  {canSelectShotType ? (
+                    <div className="mt-5">
+                      <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Shot Type for Four</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {shotTypes.map((shotType) => (
+                          <button
+                            key={shotType.value}
+                            className={cn(
+                              "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                              pendingDelivery.shotType === shotType.value
+                                ? "border-aqua/40 bg-aqua/15 text-aqua"
+                                : "border-white/10 bg-white/5 text-slate-200",
+                            )}
+                            onClick={() => handleShotTypeSelect(shotType.value)}
+                          >
+                            {shotType.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {requiresOutType ? (
+                    <div className="mt-5">
+                      <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Out Type</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {outTypes.map((outType) => (
+                          <button
+                            key={outType.value}
+                            className={cn(
+                              "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                              pendingDelivery.outType === outType.value
+                                ? "border-coral/40 bg-coral/15 text-coral"
+                                : "border-white/10 bg-white/5 text-slate-200",
+                            )}
+                            onClick={() => handleOutTypeSelect(outType.value)}
+                          >
+                            {outType.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="mt-5 rounded-[20px] border border-white/8 bg-white/5 px-4 py-4 text-sm text-slate-300">
-                    <span className="text-slate-500">Pending ball:</span> {pendingDelivery.bowlingOutcome ?? "?"} / {pendingDelivery.battingOutcome ?? "?"} / {modifierLabel(pendingDelivery.modifier)}
+                    <span className="text-slate-500">Pending ball:</span> {pendingDelivery.bowlingOutcome ?? "?"} / {pendingDelivery.battingOutcome ?? "?"} / {modifierLabel(pendingDelivery.modifier)} / {shotTypeLabel(pendingDelivery.shotType)} / {outTypeLabel(pendingDelivery.outType)}
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -813,7 +975,7 @@ export function CricketPracticeTracker() {
 
                   <Panel title="Recovery" icon={<Undo2 className="h-5 w-5" />}>
                     <p className="text-sm text-slate-400">
-                      Undo the most recent ball if the scorer tapped the wrong result. Argument penalties remain untouched.
+                      Undo the most recent recorded event if the scorer tapped the wrong result. Argument penalties remain untouched.
                     </p>
                     <button
                       className="mt-4 flex w-full items-center justify-between rounded-[20px] border border-amber/25 bg-amber/10 px-4 py-4 text-left transition hover:bg-amber/15 disabled:opacity-50"
@@ -915,7 +1077,7 @@ export function CricketPracticeTracker() {
               <div className="grid gap-3">
                 {latestDeliveries.length === 0 ? (
                   <div className="rounded-[20px] border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-500">
-                    Live balls will appear here as you score them.
+                    Live events will appear here as you score them.
                   </div>
                 ) : (
                   latestDeliveries.map((delivery) => {
@@ -926,7 +1088,7 @@ export function CricketPracticeTracker() {
                       <div key={delivery.id} className="rounded-[18px] border border-white/8 bg-white/5 px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-display text-xl uppercase tracking-[0.12em] text-white">
-                            {formatBallLabel(delivery.overNumber, delivery.ballInOver)}
+                            {formatBallLabel(delivery.overNumber, delivery.ballInOver)}{delivery.countsAsLegalBall ? "" : " (Wide)"}
                           </p>
                           <div className="flex flex-wrap gap-2">
                             <span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", buttonTone[delivery.bowlingOutcome])}>
@@ -938,6 +1100,16 @@ export function CricketPracticeTracker() {
                             {delivery.modifier ? (
                               <span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", buttonTone[delivery.modifier])}>
                                 {delivery.modifier === "wrong_shot" ? "WS" : "BB"}
+                              </span>
+                            ) : null}
+                            {delivery.shotType ? (
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white">
+                                {shotTypeLabel(delivery.shotType)}
+                              </span>
+                            ) : null}
+                            {delivery.outType ? (
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white">
+                                {outTypeLabel(delivery.outType)}
                               </span>
                             ) : null}
                           </div>
@@ -981,6 +1153,7 @@ export function CricketPracticeTracker() {
                   <Stat label="Ball Beats Faced" value={player.ballBeatsFaced} />
                   <Stat label="Good balls" value={player.goodBalls + player.wicketsOnGoodBalls} />
                   <Stat label="Bad balls" value={player.badBalls + player.wicketsOnBadBalls} />
+                  <Stat label="Wide balls" value={player.wideBalls} />
                   <Stat label="Wickets on good" value={player.wicketsOnGoodBalls} />
                   <Stat label="Wickets on bad" value={player.wicketsOnBadBalls} />
                   <Stat label="Ball Beat Bonus" value={player.ballBeatBonuses} />
@@ -1006,13 +1179,13 @@ function Hero() {
             Score practice ball by ball.
           </h1>
           <p className="mt-4 max-w-2xl text-base text-slate-300 sm:text-lg">
-            Track any squad size, define session overs, or let the app guide a round-robin practice block while still handling wrong shots, ball beats, dismissals, and manual overrides cleanly.
+            Track any squad size, define session overs, and capture richer cricket context like wides, shot types, and wicket dismissals without losing the live-scoring pace.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
           <SplashStat label="Any squad size" value="Flexible" />
-          <SplashStat label="Round robin" value="Guided" />
-          <SplashStat label="Ball composer" value="Safer" />
+          <SplashStat label="Wides" value="Supported" />
+          <SplashStat label="Ball details" value="Richer" />
         </div>
       </div>
     </section>
@@ -1125,7 +1298,13 @@ function TimelineRow({
                   ? buttonTone.wrong_shot
                   : item.includes("BB")
                     ? buttonTone.ball_beat
-                    : buttonTone[item] ?? "border-white/10 bg-white/5 text-white",
+                    : item.startsWith("WD")
+                      ? buttonTone.WD
+                      : item.startsWith("GW")
+                        ? buttonTone.GW
+                        : item.startsWith("BW")
+                          ? buttonTone.BW
+                          : buttonTone[item] ?? "border-white/10 bg-white/5 text-white",
               )}
             >
               {item}

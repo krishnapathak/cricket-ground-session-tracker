@@ -4,11 +4,13 @@ import {
   Delivery,
   DeliveryModifier,
   GuidedRoundRobinState,
+  OutType,
   Over,
   Player,
   PlayerAnalytics,
   Session,
   SessionMode,
+  ShotType,
 } from "@/lib/types";
 
 export const BALLS_PER_OVER = 6;
@@ -31,6 +33,7 @@ export function createPlayer(name: string): Player {
     bowlingPoints: 0,
     goodBalls: 0,
     badBalls: 0,
+    wideBalls: 0,
     wicketsOnGoodBalls: 0,
     wicketsOnBadBalls: 0,
     wrongShots: 0,
@@ -46,15 +49,19 @@ function getRoundRobinTotalOvers(playerCount: number, oversPerBatter: number) {
   return playerCount * oversPerBatter;
 }
 
+function getLegalDeliveriesCount(deliveries: Delivery[]) {
+  return deliveries.filter((delivery) => delivery.countsAsLegalBall).length;
+}
+
 function getGuidedAssignmentForDeliveryCount(
   session: Pick<Session, "players" | "roundRobinConfig" | "ballsPerOver" | "totalOvers">,
-  deliveriesCount: number,
+  deliveries: Delivery[],
 ) {
   if (!session.roundRobinConfig || session.roundRobinConfig.battingOrder.length === 0) {
     return { activeBowlerId: null, activeBatterId: null };
   }
 
-  const completedOvers = Math.floor(deliveriesCount / session.ballsPerOver);
+  const completedOvers = Math.floor(getLegalDeliveriesCount(deliveries) / session.ballsPerOver);
   const batterIndex = Math.min(
     Math.floor(completedOvers / session.roundRobinConfig.oversPerBatter),
     session.roundRobinConfig.battingOrder.length - 1,
@@ -72,7 +79,7 @@ function getGuidedAssignmentForDeliveryCount(
 
 function getInitialActivePlayers(session: Pick<Session, "players" | "roundRobinConfig" | "mode" | "ballsPerOver" | "totalOvers">) {
   if (session.mode === "guided_round_robin") {
-    return getGuidedAssignmentForDeliveryCount(session, 0);
+    return getGuidedAssignmentForDeliveryCount(session, []);
   }
 
   return {
@@ -144,6 +151,8 @@ export function getBowlingPoints(outcome: BowlingOutcome) {
       return 6;
     case "BW":
       return 5;
+    case "WD":
+      return -1;
   }
 }
 
@@ -176,6 +185,7 @@ function createPlayerStatReset(player: Player): Player {
     bowlingPoints: 0,
     goodBalls: 0,
     badBalls: 0,
+    wideBalls: 0,
     wicketsOnGoodBalls: 0,
     wicketsOnBadBalls: 0,
     wrongShots: 0,
@@ -232,6 +242,10 @@ function applyDeliveryToPlayers(players: Player[], delivery: Delivery) {
     bowler.badBalls += 1;
   }
 
+  if (delivery.bowlingOutcome === "WD") {
+    bowler.wideBalls += 1;
+  }
+
   if (delivery.bowlingOutcome === "GW") {
     bowler.wicketsOnGoodBalls += 1;
   }
@@ -261,10 +275,12 @@ function applyDeliveryToPlayers(players: Player[], delivery: Delivery) {
   }
 }
 
-function getProgressFromDeliveries(deliveriesCount: number, ballsPerOver: number) {
+function getProgressFromDeliveries(deliveries: Delivery[], ballsPerOver: number) {
+  const legalDeliveriesCount = getLegalDeliveriesCount(deliveries);
+
   return {
-    currentOverNumber: Math.floor(deliveriesCount / ballsPerOver) + 1,
-    currentBallInOver: (deliveriesCount % ballsPerOver) + 1,
+    currentOverNumber: Math.floor(legalDeliveriesCount / ballsPerOver) + 1,
+    currentBallInOver: (legalDeliveriesCount % ballsPerOver) + 1,
   };
 }
 
@@ -277,12 +293,13 @@ function rebuildSession(session: Session, deliveries: Delivery[]) {
     overs = upsertOver(overs, delivery);
   });
 
-  const progress = getProgressFromDeliveries(deliveries.length, session.ballsPerOver);
+  const progress = getProgressFromDeliveries(deliveries, session.ballsPerOver);
+  const legalDeliveriesCount = getLegalDeliveriesCount(deliveries);
   const totalBalls = session.totalOvers * session.ballsPerOver;
-  const isCompleted = deliveries.length >= totalBalls;
+  const isCompleted = legalDeliveriesCount >= totalBalls;
   const guidedAssignment =
     session.mode === "guided_round_robin"
-      ? getGuidedAssignmentForDeliveryCount(session, deliveries.length)
+      ? getGuidedAssignmentForDeliveryCount(session, deliveries)
       : {
           activeBowlerId: session.activeBowlerId,
           activeBatterId: session.activeBatterId,
@@ -310,6 +327,8 @@ export function recordDelivery(
     bowlingOutcome: BowlingOutcome;
     battingOutcome: BattingOutcome;
     modifier: DeliveryModifier | null;
+    shotType: ShotType | null;
+    outType: OutType | null;
   },
 ) {
   if (
@@ -319,10 +338,14 @@ export function recordDelivery(
     return session;
   }
 
-  const battingOutcome =
-    payload.bowlingOutcome === "GW" || payload.bowlingOutcome === "BW" ? "W" : payload.battingOutcome;
-  const bowlingPoints = getBowlingPoints(payload.bowlingOutcome) + (payload.modifier === "ball_beat" ? 1 : 0);
-  const battingDelta = getBattingDeltas(battingOutcome, payload.modifier);
+  const isWicket = payload.bowlingOutcome === "GW" || payload.bowlingOutcome === "BW";
+  const isWide = payload.bowlingOutcome === "WD";
+  const battingOutcome = isWicket ? "W" : isWide ? 0 : payload.battingOutcome;
+  const modifier = isWide ? null : payload.modifier;
+  const shotType = battingOutcome === 4 && !isWide ? payload.shotType : null;
+  const outType = isWicket ? payload.outType : null;
+  const bowlingPoints = getBowlingPoints(payload.bowlingOutcome) + (modifier === "ball_beat" ? 1 : 0);
+  const battingDelta = getBattingDeltas(battingOutcome, modifier);
   const delivery: Delivery = {
     id: createId(),
     overNumber: session.currentOverNumber,
@@ -332,7 +355,10 @@ export function recordDelivery(
     batterId: payload.batterId,
     bowlingOutcome: payload.bowlingOutcome,
     battingOutcome,
-    modifier: payload.modifier,
+    modifier,
+    shotType,
+    outType,
+    countsAsLegalBall: !isWide,
     bowlingPointsAwarded: bowlingPoints,
     battingRunsDelta: battingDelta.runsDelta,
     battingPenaltyDelta: battingDelta.penaltyDelta,
@@ -450,7 +476,7 @@ export function syncGuidedAssignments(session: Session) {
     return session;
   }
 
-  const assignment = getGuidedAssignmentForDeliveryCount(session, session.deliveries.length);
+  const assignment = getGuidedAssignmentForDeliveryCount(session, session.deliveries);
 
   return updateActivePlayers(session, assignment.activeBowlerId, assignment.activeBatterId);
 }
@@ -460,7 +486,8 @@ export function getGuidedRoundRobinState(session: Session): GuidedRoundRobinStat
     return null;
   }
 
-  const totalCompletedOvers = Math.floor(session.deliveries.length / session.ballsPerOver);
+  const legalDeliveriesCount = getLegalDeliveriesCount(session.deliveries);
+  const totalCompletedOvers = Math.floor(legalDeliveriesCount / session.ballsPerOver);
   const referenceOver = Math.min(totalCompletedOvers, Math.max(session.totalOvers - 1, 0));
   const currentBatterIndex = Math.min(
     Math.floor(referenceOver / session.roundRobinConfig.oversPerBatter),
@@ -476,7 +503,7 @@ export function getGuidedRoundRobinState(session: Session): GuidedRoundRobinStat
     : overOffset + 1;
   const remainingOversInBlock = session.status === "completed"
     ? 0
-    : Math.max(session.roundRobinConfig.oversPerBatter - overOffset - (session.currentBallInOver === 1 && session.deliveries.length > 0 ? 0 : 1), 0);
+    : Math.max(session.roundRobinConfig.oversPerBatter - overOffset - (session.currentBallInOver === 1 && legalDeliveriesCount > 0 ? 0 : 1), 0);
 
   return {
     currentBatterId,
@@ -508,22 +535,84 @@ export function resumeSession(session: Session) {
   return resumed.mode === "guided_round_robin" ? syncGuidedAssignments(resumed) : resumed;
 }
 
+function formatShotType(shotType: ShotType | null) {
+  if (!shotType) {
+    return null;
+  }
+
+  return {
+    drive: "Drive",
+    pull: "Pull",
+    lofted: "Lofted",
+    punch: "Punch",
+    cut: "Cut",
+    flick: "Flick",
+    edge: "Edge",
+    others: "Others",
+  }[shotType];
+}
+
+function formatOutType(outType: OutType | null) {
+  if (!outType) {
+    return null;
+  }
+
+  return {
+    bowled: "Bowled",
+    caught_out: "Caught",
+    caught_and_bowled: "C&B",
+    stumped: "Stumped",
+    lbw: "LBW",
+    run_out: "Run Out",
+    hit_wicket: "Hit Wicket",
+    others: "Others",
+  }[outType];
+}
+
 export function formatBowlerTimelineItem(delivery: Delivery) {
-  return delivery.modifier === "ball_beat"
-    ? `${delivery.bowlingOutcome}+BB`
-    : delivery.bowlingOutcome;
+  const parts: string[] = [delivery.bowlingOutcome];
+
+  if (delivery.modifier === "ball_beat") {
+    parts.push("BB");
+  }
+
+  if (delivery.bowlingOutcome === "GW" || delivery.bowlingOutcome === "BW") {
+    const outType = formatOutType(delivery.outType);
+
+    if (outType) {
+      parts.push(outType);
+    }
+  }
+
+  return parts.join("+");
 }
 
 export function formatBatterTimelineItem(delivery: Delivery) {
+  const parts: string[] = [String(delivery.battingOutcome)];
+
   if (delivery.modifier === "wrong_shot") {
-    return `${delivery.battingOutcome}+WS`;
+    parts.push("WS");
   }
 
   if (delivery.modifier === "ball_beat") {
-    return `${delivery.battingOutcome}+BB`;
+    parts.push("BB");
   }
 
-  return String(delivery.battingOutcome);
+  const shotType = formatShotType(delivery.shotType);
+
+  if (shotType) {
+    parts.push(shotType);
+  }
+
+  if (delivery.battingOutcome === "W") {
+    const outType = formatOutType(delivery.outType);
+
+    if (outType) {
+      parts.push(outType);
+    }
+  }
+
+  return parts.join("+");
 }
 
 export function getPlayerAnalytics(session: Session): PlayerAnalytics[] {

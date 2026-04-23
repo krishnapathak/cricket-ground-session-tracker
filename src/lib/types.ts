@@ -1,8 +1,26 @@
 export type SessionStatus = "setup" | "live" | "completed";
 export type SessionMode = "manual" | "guided_round_robin";
-export type BowlingOutcome = "G" | "B" | "GW" | "BW";
+export type BowlingOutcome = "G" | "B" | "GW" | "BW" | "WD";
 export type BattingOutcome = 0 | 1 | 2 | 3 | 4 | 5 | 6 | "W";
 export type DeliveryModifier = "wrong_shot" | "ball_beat";
+export type ShotType =
+  | "drive"
+  | "pull"
+  | "lofted"
+  | "punch"
+  | "cut"
+  | "flick"
+  | "edge"
+  | "others";
+export type OutType =
+  | "bowled"
+  | "caught_out"
+  | "caught_and_bowled"
+  | "stumped"
+  | "lbw"
+  | "run_out"
+  | "hit_wicket"
+  | "others";
 
 export interface Player {
   id: string;
@@ -13,6 +31,7 @@ export interface Player {
   bowlingPoints: number;
   goodBalls: number;
   badBalls: number;
+  wideBalls: number;
   wicketsOnGoodBalls: number;
   wicketsOnBadBalls: number;
   wrongShots: number;
@@ -33,6 +52,9 @@ export interface Delivery {
   bowlingOutcome: BowlingOutcome;
   battingOutcome: BattingOutcome;
   modifier: DeliveryModifier | null;
+  shotType: ShotType | null;
+  outType: OutType | null;
+  countsAsLegalBall: boolean;
   bowlingPointsAwarded: number;
   battingRunsDelta: number;
   battingPenaltyDelta: number;
@@ -75,6 +97,8 @@ export interface PendingDelivery {
   bowlingOutcome: BowlingOutcome | null;
   battingOutcome: BattingOutcome | null;
   modifier: DeliveryModifier | null;
+  shotType: ShotType | null;
+  outType: OutType | null;
 }
 
 export interface PlayerAnalytics extends Player {

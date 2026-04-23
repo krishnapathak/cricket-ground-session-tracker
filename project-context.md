@@ -664,3 +664,86 @@ The summary report now includes:
 - Wrong shots per batter
 - Ball beats faced per batter
 - Ball beat bonuses earned per bowler
+
+## Wide Ball Update
+
+### Wide Ball Rule
+
+- `WD` (Wide Ball) deducts `-1` point from the bowler
+- Wide ball gives `0` runs to the batter in this product version
+- Wide ball is recorded in the session timeline
+- Wide ball does not count as a legal ball in the over
+
+### Wide Ball Input Rule
+
+- Selecting `WD` auto-sets batting outcome to `0`
+- Wide ball disables wrong shot, ball beat, shot type, and out type selection
+- Wide ball can be recorded immediately once selected
+
+## Legal Ball Counting Update
+
+The app now distinguishes between recorded events and legal deliveries.
+
+### Counting Rules
+
+- `G`, `B`, `GW`, and `BW` count as legal balls
+- `WD` does not count as a legal ball
+- Over progression, ball number, guided round robin flow, and session completion must all use legal-ball count
+
+## Shot Type Update
+
+When batting outcome is `4`, the scorer can optionally record the shot type.
+
+### Supported Shot Types
+
+- `Drive`
+- `Pull`
+- `Lofted`
+- `Punch`
+- `Cut`
+- `Flick`
+- `Edge`
+- `Others`
+
+### Shot Type Rule
+
+- Shot type is only available when batting outcome is `4`
+- If the batting outcome changes away from `4`, shot type is cleared
+
+## Wicket Out Type Update
+
+When `GW` or `BW` is selected, the scorer must also choose the dismissal type.
+
+### Supported Out Types
+
+- `Bowled`
+- `Caught Out`
+- `Caught & Bowled`
+- `Stumped`
+- `LBW`
+- `Run Out`
+- `Hit Wicket`
+- `Others`
+
+### Wicket Input Rule
+
+- `GW` and `BW` automatically force batting outcome to `W`
+- A wicket delivery cannot be recorded until an out type is selected
+
+## Delivery Model Additions
+
+```ts
+export interface Delivery {
+  shotType: ShotType | null;
+  outType: OutType | null;
+  countsAsLegalBall: boolean;
+}
+```
+
+## Reporting Update
+
+The summary report now includes:
+
+- Wide ball count per bowler
+- Timeline detail for wicket out types
+- Timeline detail for four-shot types
