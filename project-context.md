@@ -402,6 +402,7 @@ Example:
 - Sticky action controls for live scoring
 - Horizontally scrollable timeline chips if needed
 - Responsive dashboard that expands into panels/cards on desktop
+- On small screens, summary cards, leaderboard rows, progress headers, and action groups should stack vertically before they wrap or compress text
 
 ### Component Guidance
 

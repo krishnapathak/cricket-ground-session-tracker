@@ -581,7 +581,7 @@ export function CricketPracticeTracker() {
                         key={savedSession.id}
                         className="rounded-[22px] border border-white/8 bg-[#0c111d] p-4"
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <p className="font-display text-2xl uppercase tracking-[0.12em] text-white">
                               {savedSession.title}
@@ -641,7 +641,7 @@ export function CricketPracticeTracker() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.26em] text-aqua">Cricket Practice Tracker</p>
-              <h1 className="mt-2 font-display text-4xl uppercase tracking-[0.16em] text-white sm:text-5xl">
+              <h1 className="mt-2 font-display text-3xl uppercase tracking-[0.16em] text-white sm:text-5xl">
                 {session.title}
               </h1>
               <p className="mt-2 text-sm text-slate-400">
@@ -674,7 +674,7 @@ export function CricketPracticeTracker() {
           </div>
 
           <div className="mt-5 rounded-[22px] border border-white/8 bg-[#0c111d] p-4">
-            <div className="flex items-center justify-between text-xs uppercase tracking-[0.22em] text-slate-400">
+            <div className="flex flex-col items-start gap-2 text-xs uppercase tracking-[0.22em] text-slate-400 sm:flex-row sm:items-center sm:justify-between">
               <span>Session Progress</span>
               <span>
                 Over {displayOver} of {session.totalOvers} • Ball {displayBall}/{session.ballsPerOver}
@@ -695,7 +695,7 @@ export function CricketPracticeTracker() {
               <Waypoints className="h-5 w-5" />
               <p className="font-display text-2xl uppercase tracking-[0.18em] text-white">Guided Round Robin</p>
             </div>
-            <div className="mt-5 grid gap-4 lg:grid-cols-4">
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Stat label="Current Batter" value={guidedCurrentBatter?.name ?? "-"} />
               <Stat label="Batter Over" value={`${guidedState.currentBatterOver}/${guidedState.oversPerBatter}`} />
               <Stat label="Planned Bowler" value={guidedCurrentBowler?.name ?? "-"} />
@@ -803,7 +803,7 @@ export function CricketPracticeTracker() {
 
                   <div className="mt-5">
                     <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Batting Outcome</p>
-                    <div className="mt-3 grid grid-cols-4 gap-3">
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {battingOptions.map((option) => (
                         <button
                           key={option}
@@ -978,7 +978,7 @@ export function CricketPracticeTracker() {
                       Undo the most recent recorded event if the scorer tapped the wrong result. Argument penalties remain untouched.
                     </p>
                     <button
-                      className="mt-4 flex w-full items-center justify-between rounded-[20px] border border-amber/25 bg-amber/10 px-4 py-4 text-left transition hover:bg-amber/15 disabled:opacity-50"
+                      className="mt-4 flex w-full flex-col items-start gap-3 rounded-[20px] border border-amber/25 bg-amber/10 px-4 py-4 text-left transition hover:bg-amber/15 disabled:opacity-50 sm:flex-row sm:items-center sm:justify-between"
                       onClick={handleUndoLastBall}
                       disabled={session.deliveries.length === 0}
                     >
@@ -1002,7 +1002,7 @@ export function CricketPracticeTracker() {
                       {livePlayers.map((player) => (
                         <button
                           key={player.id}
-                          className="flex items-center justify-between rounded-[20px] border border-coral/20 bg-coral/10 px-4 py-4 text-left transition hover:bg-coral/15"
+                          className="flex flex-col items-start gap-3 rounded-[20px] border border-coral/20 bg-coral/10 px-4 py-4 text-left transition hover:bg-coral/15 sm:flex-row sm:items-center sm:justify-between"
                           onClick={() => handleArgument(player.id)}
                         >
                           <span>
@@ -1024,7 +1024,7 @@ export function CricketPracticeTracker() {
               <div className="grid gap-5 xl:grid-cols-2">
                 {analytics.map((player) => (
                   <div key={player.id} className="rounded-[22px] border border-white/8 bg-[#0c111d] p-4">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-display text-2xl uppercase tracking-[0.12em] text-white">{player.name}</p>
                         <p className="text-sm text-slate-400">Total score {player.totalSessionScore}</p>
@@ -1054,7 +1054,7 @@ export function CricketPracticeTracker() {
                       index === 0 ? "border-glow/35 bg-glow/12" : "border-white/8 bg-white/5",
                     )}
                   >
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-display text-2xl uppercase tracking-[0.12em] text-white">
                           #{index + 1} {player.name}
@@ -1086,7 +1086,7 @@ export function CricketPracticeTracker() {
 
                     return (
                       <div key={delivery.id} className="rounded-[18px] border border-white/8 bg-white/5 px-4 py-3">
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <p className="font-display text-xl uppercase tracking-[0.12em] text-white">
                             {formatBallLabel(delivery.overNumber, delivery.ballInOver)}{delivery.countsAsLegalBall ? "" : " (Wide)"}
                           </p>
@@ -1134,7 +1134,7 @@ export function CricketPracticeTracker() {
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             {analytics.map((player) => (
               <div key={player.id} className="rounded-[22px] border border-white/8 bg-ink/70 p-4">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-display text-2xl uppercase tracking-[0.12em] text-white">{player.name}</p>
                     <p className="text-sm text-slate-400">
@@ -1146,7 +1146,7 @@ export function CricketPracticeTracker() {
                   </span>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                   <Stat label="Runs" value={player.battingRuns} />
                   <Stat label="Dismissals" value={player.battingDismissals} />
                   <Stat label="Wrong Shots" value={player.wrongShots} />
@@ -1175,7 +1175,7 @@ function Hero() {
       <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
         <div>
           <p className="text-sm uppercase tracking-[0.28em] text-aqua">Sports Pro Dashboard</p>
-          <h1 className="mt-3 font-display text-5xl uppercase tracking-[0.12em] text-white sm:text-6xl">
+          <h1 className="mt-3 font-display text-4xl uppercase tracking-[0.12em] text-white sm:text-6xl">
             Score practice ball by ball.
           </h1>
           <p className="mt-4 max-w-2xl text-base text-slate-300 sm:text-lg">
@@ -1264,7 +1264,7 @@ function PlayerHighlight({
   return (
     <div className="mt-5 rounded-[22px] border border-white/8 bg-[#0c111d] p-4">
       <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{label}</p>
-      <p className="mt-2 font-display text-3xl uppercase tracking-[0.12em] text-white">{name}</p>
+      <p className="mt-2 font-display text-2xl uppercase tracking-[0.12em] text-white sm:text-3xl">{name}</p>
       <p className="mt-4 text-xs uppercase tracking-[0.22em] text-slate-500">{statLabel}</p>
       <p className="mt-2 text-sm text-slate-300">{statValue}</p>
     </div>
@@ -1350,7 +1350,7 @@ function SplashStat({
   return (
     <div className="rounded-[24px] border border-white/10 bg-[#0d1320] p-4">
       <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{label}</p>
-      <p className="mt-2 font-display text-3xl uppercase tracking-[0.12em] text-white">{value}</p>
+      <p className="mt-2 font-display text-2xl uppercase tracking-[0.12em] text-white sm:text-3xl">{value}</p>
     </div>
   );
 }
@@ -1372,7 +1372,7 @@ function Stat({
       )}
     >
       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className="mt-2 font-display text-2xl uppercase tracking-[0.1em] text-white">{value}</p>
+      <p className="mt-2 font-display text-xl uppercase tracking-[0.1em] text-white sm:text-2xl">{value}</p>
     </div>
   );
 }
