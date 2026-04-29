@@ -87,6 +87,8 @@ interface SetupPlayer {
   canBowl: boolean;
 }
 
+type MobileTab = "score" | "timeline" | "leaderboard" | "summary";
+
 const defaultSetupPlayers: SetupPlayer[] = [
   { name: "Player 1", canBat: true, canBowl: true },
   { name: "Player 2", canBat: true, canBowl: true },
@@ -155,6 +157,7 @@ export function CricketPracticeTracker() {
     outType: null,
   });
   const [setupError, setSetupError] = useState("");
+  const [mobileTab, setMobileTab] = useState<MobileTab>("score");
 
   useEffect(() => {
     setSession(loadSession());
@@ -190,6 +193,7 @@ export function CricketPracticeTracker() {
     () => (session ? [...session.deliveries].slice(-10).reverse() : []),
     [session],
   );
+  const mobileRecentDeliveries = latestDeliveries.slice(0, 5);
   const overRotationReady = Boolean(
     session && session.status !== "completed" && session.mode === "manual" && session.deliveries.some((delivery) => delivery.countsAsLegalBall) && session.currentBallInOver === 1,
   );
@@ -804,9 +808,31 @@ export function CricketPracticeTracker() {
           </section>
         ) : null}
 
-        <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
-          <div className="grid gap-5">
-            <div className="grid gap-5 lg:grid-cols-2">
+        <section className="sticky top-3 z-20 rounded-[22px] border border-white/10 bg-panel/90 p-2 shadow-ring backdrop-blur md:hidden">
+          <div className="grid grid-cols-4 gap-2">
+            {([
+              { key: "score", label: "Score" },
+              { key: "timeline", label: "Timeline" },
+              { key: "leaderboard", label: "Ranks" },
+              { key: "summary", label: "Summary" },
+            ] as Array<{ key: MobileTab; label: string }>).map((tab) => (
+              <button
+                key={tab.key}
+                className={cn(
+                  "rounded-[16px] px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition",
+                  mobileTab === tab.key ? "bg-glow text-slate-950" : "bg-white/5 text-slate-300",
+                )}
+                onClick={() => setMobileTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className={cn("grid gap-5 xl:grid-cols-[1.35fr_0.65fr]", mobileTab === "summary" && "hidden md:grid")}>
+          <div className={cn("grid gap-5", !["score", "timeline"].includes(mobileTab) && "hidden md:grid")}>
+            <div className={cn("grid gap-5 lg:grid-cols-2", mobileTab !== "score" && "hidden md:grid")}>
               <Panel title="Active Bowler" icon={<Target className="h-5 w-5" />}>
                 <PlayerSelector
                   players={bowlerSelectablePlayers}
@@ -866,7 +892,7 @@ export function CricketPracticeTracker() {
             </div>
 
             {session.status !== "completed" ? (
-              <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+              <section className={cn("grid gap-5 lg:grid-cols-[0.95fr_1.05fr]", mobileTab !== "score" && "hidden md:grid")}>
                 <Panel title="Ball Input" icon={<Play className="h-5 w-5" />}>
                   <p className="text-sm text-slate-400">
                     Build the current ball by selecting the bowling result, batting result, and any allowed extra details, then record it.
@@ -1109,7 +1135,8 @@ export function CricketPracticeTracker() {
               </section>
             ) : null}
 
-            <Panel title="Session Timeline" icon={<BarChart3 className="h-5 w-5" />}>
+            <div className={cn(mobileTab !== "timeline" && "hidden md:block")}>
+              <Panel title="Session Timeline" icon={<BarChart3 className="h-5 w-5" />}>
               <div className="grid gap-5 xl:grid-cols-2">
                 {analytics.map((player) => (
                   <div key={player.id} className="rounded-[22px] border border-white/8 bg-[#0c111d] p-4">
@@ -1129,11 +1156,13 @@ export function CricketPracticeTracker() {
                   </div>
                 ))}
               </div>
-            </Panel>
+              </Panel>
+            </div>
           </div>
 
-          <div className="grid gap-5">
-            <Panel title="Leaderboard" icon={<Trophy className="h-5 w-5" />}>
+          <div className={cn("grid gap-5", mobileTab === "summary" && "hidden md:grid")}>
+            <div className={cn(mobileTab !== "leaderboard" && "hidden md:block")}>
+              <Panel title="Leaderboard" icon={<Trophy className="h-5 w-5" />}>
               <div className="grid gap-3">
                 {analytics.map((player, index) => (
                   <div
@@ -1160,16 +1189,18 @@ export function CricketPracticeTracker() {
                   </div>
                 ))}
               </div>
-            </Panel>
+              </Panel>
+            </div>
 
-            <Panel title="Recent Balls" icon={<RotateCcw className="h-5 w-5" />}>
+            <div className={cn(!["score", "timeline"].includes(mobileTab) && "hidden md:block")}>
+              <Panel title="Recent Balls" icon={<RotateCcw className="h-5 w-5" />}>
               <div className="grid gap-3">
-                {latestDeliveries.length === 0 ? (
+                {(mobileRecentDeliveries.length === 0 && latestDeliveries.length === 0) ? (
                   <div className="rounded-[20px] border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-500">
                     Live events will appear here as you score them.
                   </div>
                 ) : (
-                  latestDeliveries.map((delivery) => {
+                  (mobileTab === "score" || mobileTab === "timeline" ? mobileRecentDeliveries : latestDeliveries).map((delivery) => {
                     const bowler = session.players.find((player) => player.id === delivery.bowlerId);
                     const batter = session.players.find((player) => player.id === delivery.batterId);
 
@@ -1211,11 +1242,12 @@ export function CricketPracticeTracker() {
                   })
                 )}
               </div>
-            </Panel>
+              </Panel>
+            </div>
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-white/10 bg-[#0d1320]/85 p-5 shadow-ring sm:p-6">
+        <section className={cn("rounded-[28px] border border-white/10 bg-[#0d1320]/85 p-5 shadow-ring sm:p-6", mobileTab !== "summary" && "hidden md:block")}>
           <div className="flex items-center gap-3 text-amber">
             <BarChart3 className="h-5 w-5" />
             <p className="font-display text-2xl uppercase tracking-[0.18em]">Summary Report</p>

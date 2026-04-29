@@ -406,7 +406,8 @@ Example:
 ### Layout Priorities
 
 - Mobile-first interface
-- Sticky action controls for live scoring
+- On mobile, use a tabbed scorer flow so `Score`, `Timeline`, `Leaderboard`, and `Summary` do not compete in one long page
+- Sticky action controls or quick mobile tab access for live scoring
 - Horizontally scrollable timeline chips if needed
 - Responsive dashboard that expands into panels/cards on desktop
 - On small screens, summary cards, leaderboard rows, progress headers, and action groups should stack vertically before they wrap or compress text
@@ -426,6 +427,7 @@ Example:
 
 - Session setup
 - Live scoring dashboard
+- Mobile tabbed scorer views: Score, Timeline, Leaderboard, Summary
 - Summary report
 
 ### Supporting UI Sections
