@@ -25,6 +25,8 @@ export type OutType =
 export interface Player {
   id: string;
   name: string;
+  canBat: boolean;
+  canBowl: boolean;
   battingRuns: number;
   battingDismissals: number;
   battingNetScore: number;
@@ -111,6 +113,8 @@ export interface PlayerAnalytics extends Player {
 export interface GuidedRoundRobinState {
   currentBatterId: string | null;
   currentBowlerId: string | null;
+  plannedBowlerId: string | null;
+  eligibleBowlerIds: string[];
   currentBatterIndex: number;
   currentBatterOver: number;
   oversPerBatter: number;

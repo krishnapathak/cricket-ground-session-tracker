@@ -23,10 +23,52 @@ export function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function createPlayer(name: string): Player {
+export function playerCanBat(player: Pick<Player, "canBat">) {
+  return player.canBat !== false;
+}
+
+export function playerCanBowl(player: Pick<Player, "canBowl">) {
+  return player.canBowl !== false;
+}
+
+function isEligibleBatter(players: Player[], playerId: string | null) {
+  return Boolean(playerId && players.some((player) => player.id === playerId && playerCanBat(player)));
+}
+
+function isEligibleBowler(players: Player[], playerId: string | null, activeBatterId: string | null) {
+  return Boolean(
+    playerId &&
+      playerId !== activeBatterId &&
+      players.some((player) => player.id === playerId && playerCanBowl(player)),
+  );
+}
+
+function getNextEligiblePlayer(players: Player[], currentPlayerId: string | null, predicate: (player: Player) => boolean) {
+  const eligiblePlayers = players.filter(predicate);
+
+  if (eligiblePlayers.length === 0) {
+    return null;
+  }
+
+  if (!currentPlayerId) {
+    return eligiblePlayers[0]?.id ?? null;
+  }
+
+  const currentIndex = eligiblePlayers.findIndex((player) => player.id === currentPlayerId);
+
+  if (currentIndex === -1) {
+    return eligiblePlayers[0]?.id ?? null;
+  }
+
+  return eligiblePlayers[(currentIndex + 1) % eligiblePlayers.length]?.id ?? null;
+}
+
+export function createPlayer(input: { name: string; canBat?: boolean; canBowl?: boolean }): Player {
   return {
     id: createId(),
-    name,
+    name: input.name,
+    canBat: input.canBat !== false,
+    canBowl: input.canBowl !== false,
     battingRuns: 0,
     battingDismissals: 0,
     battingNetScore: 0,
@@ -53,62 +95,133 @@ function getLegalDeliveriesCount(deliveries: Delivery[]) {
   return deliveries.filter((delivery) => delivery.countsAsLegalBall).length;
 }
 
-function getGuidedAssignmentForDeliveryCount(
-  session: Pick<Session, "players" | "roundRobinConfig" | "ballsPerOver" | "totalOvers">,
-  deliveries: Delivery[],
-) {
-  if (!session.roundRobinConfig || session.roundRobinConfig.battingOrder.length === 0) {
-    return { activeBowlerId: null, activeBatterId: null };
+interface GuidedOverPlanEntry {
+  overNumber: number;
+  batterId: string | null;
+  bowlerId: string | null;
+  batterIndex: number;
+  batterOver: number;
+  nextBatterId: string | null;
+  eligibleBowlerIds: string[];
+}
+
+function getCircularEligibleBowlers(players: Array<Pick<Player, "id" | "canBowl">>, batterId: string | null) {
+  if (players.length === 0) {
+    return [];
   }
 
-  const completedOvers = Math.floor(getLegalDeliveriesCount(deliveries) / session.ballsPerOver);
-  const batterIndex = Math.min(
-    Math.floor(completedOvers / session.roundRobinConfig.oversPerBatter),
-    session.roundRobinConfig.battingOrder.length - 1,
-  );
-  const batterId = session.roundRobinConfig.battingOrder[batterIndex] ?? null;
-  const availableBowlers = session.roundRobinConfig.battingOrder.filter((playerId) => playerId !== batterId);
-  const bowlerIndex = session.roundRobinConfig.oversPerBatter === 0 ? 0 : completedOvers % session.roundRobinConfig.oversPerBatter;
-  const bowlerId = availableBowlers.length === 0 ? null : availableBowlers[bowlerIndex % availableBowlers.length] ?? null;
+  const batterIndex = players.findIndex((player) => player.id === batterId);
+  const orderedPlayers = batterIndex === -1
+    ? players
+    : players.map((_, offset) => players[(batterIndex + offset + 1) % players.length] ?? null).filter(Boolean);
+
+  return orderedPlayers
+    .filter((player): player is Pick<Player, "id" | "canBowl"> => Boolean(player))
+    .filter((player) => player.id !== batterId && playerCanBowl(player))
+    .map((player) => player.id);
+}
+
+function getGuidedOverPlan(session: Pick<Session, "players" | "roundRobinConfig" | "totalOvers">): GuidedOverPlanEntry[] {
+  if (!session.roundRobinConfig || session.roundRobinConfig.battingOrder.length === 0) {
+    return [];
+  }
+
+  const plan: GuidedOverPlanEntry[] = [];
+  const { battingOrder, oversPerBatter } = session.roundRobinConfig;
+
+  battingOrder.forEach((batterId, batterIndex) => {
+    const eligibleBowlerIds = getCircularEligibleBowlers(session.players, batterId);
+    const nextBatterId = battingOrder[batterIndex + 1] ?? null;
+
+    for (let overOffset = 0; overOffset < oversPerBatter; overOffset += 1) {
+      plan.push({
+        overNumber: plan.length + 1,
+        batterId,
+        bowlerId: eligibleBowlerIds.length === 0 ? null : eligibleBowlerIds[overOffset % eligibleBowlerIds.length] ?? null,
+        batterIndex,
+        batterOver: overOffset + 1,
+        nextBatterId,
+        eligibleBowlerIds,
+      });
+    }
+  });
+
+  return plan.slice(0, session.totalOvers);
+}
+
+function getGuidedAssignmentForDeliveryCount(
+  session: Pick<Session, "players" | "roundRobinConfig" | "ballsPerOver" | "totalOvers" | "activeBowlerId" | "currentOverNumber">,
+  deliveries: Delivery[],
+) {
+  const plan = getGuidedOverPlan(session);
+
+  if (plan.length === 0) {
+    return { activeBowlerId: null, activeBatterId: null, plannedBowlerId: null, eligibleBowlerIds: [] };
+  }
+
+  const progress = getProgressFromDeliveries(deliveries, session.ballsPerOver);
+  const currentPlanEntry = plan[Math.min(Math.max(progress.currentOverNumber - 1, 0), plan.length - 1)] ?? null;
+  const currentOverDeliveries = deliveries.filter((delivery) => delivery.overNumber === progress.currentOverNumber);
+  const plannedBowlerId = currentPlanEntry?.bowlerId ?? null;
+  const preservedBowlerId =
+    progress.currentOverNumber === session.currentOverNumber &&
+    isEligibleBowler(session.players, session.activeBowlerId, currentPlanEntry?.batterId ?? null) &&
+    currentOverDeliveries.length === 0
+      ? session.activeBowlerId
+      : null;
 
   return {
-    activeBowlerId: bowlerId,
-    activeBatterId: batterId,
+    activeBowlerId: currentOverDeliveries[0]?.bowlerId ?? preservedBowlerId ?? plannedBowlerId,
+    activeBatterId: currentPlanEntry?.batterId ?? null,
+    plannedBowlerId,
+    eligibleBowlerIds: currentPlanEntry?.eligibleBowlerIds ?? [],
   };
 }
 
-function getInitialActivePlayers(session: Pick<Session, "players" | "roundRobinConfig" | "mode" | "ballsPerOver" | "totalOvers">) {
+function getInitialActivePlayers(session: Pick<Session, "players" | "roundRobinConfig" | "mode" | "ballsPerOver" | "totalOvers" | "activeBowlerId" | "currentOverNumber">) {
   if (session.mode === "guided_round_robin") {
     return getGuidedAssignmentForDeliveryCount(session, []);
   }
 
+  const activeBowlerId = getNextEligiblePlayer(session.players, null, (player) => playerCanBowl(player));
+  const activeBatterId = getNextEligiblePlayer(
+    session.players,
+    null,
+    (player) => playerCanBat(player) && player.id !== activeBowlerId,
+  );
+
   return {
-    activeBowlerId: session.players[0]?.id ?? null,
-    activeBatterId: session.players[1]?.id ?? session.players[0]?.id ?? null,
+    activeBowlerId,
+    activeBatterId,
   };
 }
 
 export function createSession(
   title: string,
-  playerNames: string[],
+  playerInputs: Array<{ name: string; canBat: boolean; canBowl: boolean }>,
   totalOvers: number,
   options?: {
     mode?: SessionMode;
     oversPerBatter?: number;
   },
 ): Session {
-  const players = playerNames
-    .map((name) => name.trim())
-    .filter(Boolean)
+  const players = playerInputs
+    .map((player) => ({
+      name: player.name.trim(),
+      canBat: player.canBat,
+      canBowl: player.canBowl,
+    }))
+    .filter((player) => player.name)
     .map(createPlayer);
   const timestamp = new Date().toISOString();
   const mode = options?.mode ?? "manual";
   const oversPerBatter = Math.max(1, options?.oversPerBatter ?? 1);
+  const battingOrder = players.filter((player) => playerCanBat(player)).map((player) => player.id);
   const roundRobinConfig =
     mode === "guided_round_robin"
       ? {
           oversPerBatter,
-          battingOrder: players.map((player) => player.id),
+          battingOrder,
         }
       : null;
   const nextSession: Session = {
@@ -120,7 +233,7 @@ export function createSession(
     updatedAt: timestamp,
     totalOvers:
       mode === "guided_round_robin"
-        ? getRoundRobinTotalOvers(players.length, oversPerBatter)
+        ? getRoundRobinTotalOvers(battingOrder.length, oversPerBatter)
         : totalOvers,
     ballsPerOver: BALLS_PER_OVER,
     currentOverNumber: 1,
@@ -133,11 +246,16 @@ export function createSession(
     roundRobinConfig,
   };
 
-  const initialActivePlayers = getInitialActivePlayers(nextSession);
+  const initialActivePlayers = getInitialActivePlayers({
+    ...nextSession,
+    activeBowlerId: null,
+    currentOverNumber: 1,
+  });
 
   return {
     ...nextSession,
-    ...initialActivePlayers,
+    activeBowlerId: initialActivePlayers.activeBowlerId,
+    activeBatterId: initialActivePlayers.activeBatterId,
   };
 }
 
@@ -179,6 +297,8 @@ function recalculatePlayer(player: Player) {
 function createPlayerStatReset(player: Player): Player {
   const nextPlayer: Player = {
     ...player,
+    canBat: playerCanBat(player),
+    canBowl: playerCanBowl(player),
     battingRuns: 0,
     battingDismissals: 0,
     battingNetScore: 0,
@@ -303,6 +423,8 @@ function rebuildSession(session: Session, deliveries: Delivery[]) {
       : {
           activeBowlerId: session.activeBowlerId,
           activeBatterId: session.activeBatterId,
+          plannedBowlerId: session.activeBowlerId,
+          eligibleBowlerIds: [],
         };
 
   return {
@@ -332,8 +454,8 @@ export function recordDelivery(
   },
 ) {
   if (
-    !session.players.find((player) => player.id === payload.bowlerId) ||
-    !session.players.find((player) => player.id === payload.batterId)
+    !isEligibleBowler(session.players, payload.bowlerId, payload.batterId) ||
+    !isEligibleBatter(session.players, payload.batterId)
   ) {
     return session;
   }
@@ -400,6 +522,10 @@ export function updateActivePlayers(
   activeBowlerId: string | null,
   activeBatterId: string | null,
 ) {
+  if (!isEligibleBatter(session.players, activeBatterId) || !isEligibleBowler(session.players, activeBowlerId, activeBatterId)) {
+    return session;
+  }
+
   return {
     ...session,
     activeBowlerId,
@@ -413,39 +539,31 @@ export function getNextPlayerId(
   currentPlayerId: string | null,
   excludedPlayerIds: string[] = [],
 ) {
-  const players = session.players.filter((player) => !excludedPlayerIds.includes(player.id));
-
-  if (players.length === 0) {
-    return null;
-  }
-
-  if (!currentPlayerId) {
-    return players[0]?.id ?? null;
-  }
-
-  const currentIndex = players.findIndex((player) => player.id === currentPlayerId);
-
-  if (currentIndex === -1) {
-    return players[0]?.id ?? null;
-  }
-
-  return players[(currentIndex + 1) % players.length]?.id ?? null;
+  return getNextEligiblePlayer(
+    session.players,
+    currentPlayerId,
+    (player) => !excludedPlayerIds.includes(player.id),
+  );
 }
 
 export function cycleActivePlayer(session: Session, role: "bowler" | "batter") {
   if (role === "bowler") {
-    return updateActivePlayers(
-      session,
-      getNextPlayerId(session, session.activeBowlerId, session.activeBatterId ? [session.activeBatterId] : []),
-      session.activeBatterId,
+    const nextBowlerId = getNextEligiblePlayer(
+      session.players,
+      session.activeBowlerId,
+      (player) => playerCanBowl(player) && player.id !== session.activeBatterId,
     );
+
+    return updateActivePlayers(session, nextBowlerId, session.activeBatterId);
   }
 
-  return updateActivePlayers(
-    session,
-    session.activeBowlerId,
-    getNextPlayerId(session, session.activeBatterId, session.activeBowlerId ? [session.activeBowlerId] : []),
+  const nextBatterId = getNextEligiblePlayer(
+    session.players,
+    session.activeBatterId,
+    (player) => playerCanBat(player) && player.id !== session.activeBowlerId,
   );
+
+  return updateActivePlayers(session, session.activeBowlerId, nextBatterId);
 }
 
 export function swapActiveRoles(session: Session) {
@@ -453,19 +571,23 @@ export function swapActiveRoles(session: Session) {
     return session;
   }
 
+  if (!isEligibleBowler(session.players, session.activeBatterId, session.activeBowlerId) || !isEligibleBatter(session.players, session.activeBowlerId)) {
+    return session;
+  }
+
   return updateActivePlayers(session, session.activeBatterId, session.activeBowlerId);
 }
 
 export function rotateOverParticipants(session: Session) {
-  const nextBowlerId = getNextPlayerId(
-    session,
+  const nextBowlerId = getNextEligiblePlayer(
+    session.players,
     session.activeBowlerId,
-    session.activeBatterId ? [session.activeBatterId] : [],
+    (player) => playerCanBowl(player) && player.id !== session.activeBatterId,
   );
-  const nextBatterId = getNextPlayerId(
-    session,
+  const nextBatterId = getNextEligiblePlayer(
+    session.players,
     session.activeBatterId,
-    nextBowlerId ? [nextBowlerId] : [],
+    (player) => playerCanBat(player) && player.id !== nextBowlerId,
   );
 
   return updateActivePlayers(session, nextBowlerId, nextBatterId);
@@ -486,34 +608,40 @@ export function getGuidedRoundRobinState(session: Session): GuidedRoundRobinStat
     return null;
   }
 
+  const plan = getGuidedOverPlan(session);
+
+  if (plan.length === 0) {
+    return null;
+  }
+
   const legalDeliveriesCount = getLegalDeliveriesCount(session.deliveries);
   const totalCompletedOvers = Math.floor(legalDeliveriesCount / session.ballsPerOver);
-  const referenceOver = Math.min(totalCompletedOvers, Math.max(session.totalOvers - 1, 0));
-  const currentBatterIndex = Math.min(
-    Math.floor(referenceOver / session.roundRobinConfig.oversPerBatter),
-    Math.max(session.roundRobinConfig.battingOrder.length - 1, 0),
-  );
-  const currentBatterId = session.roundRobinConfig.battingOrder[currentBatterIndex] ?? null;
-  const availableBowlers = session.roundRobinConfig.battingOrder.filter((playerId) => playerId !== currentBatterId);
-  const overOffset = referenceOver % session.roundRobinConfig.oversPerBatter;
-  const currentBowlerId = availableBowlers.length === 0 ? null : availableBowlers[overOffset % availableBowlers.length] ?? null;
-  const nextBatterId = session.roundRobinConfig.battingOrder[currentBatterIndex + 1] ?? null;
-  const currentBatterOver = session.status === "completed"
-    ? session.roundRobinConfig.oversPerBatter
-    : overOffset + 1;
+  const referenceOver = Math.min(totalCompletedOvers, Math.max(plan.length - 1, 0));
+  const currentPlanEntry = plan[referenceOver] ?? plan[plan.length - 1] ?? null;
+  const assignment = getGuidedAssignmentForDeliveryCount(session, session.deliveries);
+
+  if (!currentPlanEntry) {
+    return null;
+  }
+
   const remainingOversInBlock = session.status === "completed"
     ? 0
-    : Math.max(session.roundRobinConfig.oversPerBatter - overOffset - (session.currentBallInOver === 1 && legalDeliveriesCount > 0 ? 0 : 1), 0);
+    : Math.max(
+        session.roundRobinConfig.oversPerBatter - currentPlanEntry.batterOver - (session.currentBallInOver === 1 && legalDeliveriesCount > 0 ? 0 : 1),
+        0,
+      );
 
   return {
-    currentBatterId,
-    currentBowlerId,
-    currentBatterIndex,
-    currentBatterOver,
+    currentBatterId: currentPlanEntry.batterId,
+    currentBowlerId: assignment.activeBowlerId,
+    plannedBowlerId: currentPlanEntry.bowlerId,
+    eligibleBowlerIds: currentPlanEntry.eligibleBowlerIds,
+    currentBatterIndex: currentPlanEntry.batterIndex,
+    currentBatterOver: session.status === "completed" ? session.roundRobinConfig.oversPerBatter : currentPlanEntry.batterOver,
     oversPerBatter: session.roundRobinConfig.oversPerBatter,
     completedOvers: totalCompletedOvers,
     remainingOversInBlock,
-    nextBatterId,
+    nextBatterId: currentPlanEntry.nextBatterId,
   };
 }
 

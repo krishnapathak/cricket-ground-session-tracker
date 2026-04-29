@@ -29,6 +29,8 @@ import {
   formatBallLabel,
   getGuidedRoundRobinState,
   getPlayerAnalytics,
+  playerCanBat,
+  playerCanBowl,
   recordDelivery,
   resumeSession,
   rotateOverParticipants,
@@ -77,6 +79,19 @@ const outTypes: Array<{ label: string; value: OutType }> = [
   { label: "Run Out", value: "run_out" },
   { label: "Hit Wicket", value: "hit_wicket" },
   { label: "Others", value: "others" },
+];
+
+interface SetupPlayer {
+  name: string;
+  canBat: boolean;
+  canBowl: boolean;
+}
+
+const defaultSetupPlayers: SetupPlayer[] = [
+  { name: "Player 1", canBat: true, canBowl: true },
+  { name: "Player 2", canBat: true, canBowl: true },
+  { name: "Player 3", canBat: true, canBowl: true },
+  { name: "Player 4", canBat: true, canBowl: true },
 ];
 
 const buttonTone: Record<string, string> = {
@@ -131,7 +146,7 @@ export function CricketPracticeTracker() {
   const [mode, setMode] = useState<SessionMode>("manual");
   const [totalOvers, setTotalOvers] = useState("20");
   const [oversPerBatter, setOversPerBatter] = useState("6");
-  const [playerNames, setPlayerNames] = useState(["Player 1", "Player 2", "Player 3", "Player 4"]);
+  const [setupPlayers, setSetupPlayers] = useState<SetupPlayer[]>(defaultSetupPlayers);
   const [pendingDelivery, setPendingDelivery] = useState<PendingDelivery>({
     bowlingOutcome: null,
     battingOutcome: null,
@@ -176,9 +191,10 @@ export function CricketPracticeTracker() {
   const overRotationReady = Boolean(
     session && session.status !== "completed" && session.mode === "manual" && session.deliveries.some((delivery) => delivery.countsAsLegalBall) && session.currentBallInOver === 1,
   );
+  const guidedBattersPreview = setupPlayers.filter((player) => player.name.trim() && player.canBat).length;
   const guidedTotalOversPreview =
     mode === "guided_round_robin"
-      ? Math.max(playerNames.map((name) => name.trim()).filter(Boolean).length, 0) * Math.max(Number(oversPerBatter) || 0, 0)
+      ? guidedBattersPreview * Math.max(Number(oversPerBatter) || 0, 0)
       : 0;
   const wicketLocked = pendingDelivery.bowlingOutcome === "GW" || pendingDelivery.bowlingOutcome === "BW";
   const wideLocked = pendingDelivery.bowlingOutcome === "WD";
@@ -204,29 +220,65 @@ export function CricketPracticeTracker() {
   }
 
   function updatePlayerName(index: number, value: string) {
-    setPlayerNames((current) => current.map((name, nameIndex) => (nameIndex === index ? value : name)));
+    setSetupPlayers((current) => current.map((player, playerIndex) => (playerIndex === index ? { ...player, name: value } : player)));
+  }
+
+  function toggleSetupPlayerRole(index: number, role: "canBat" | "canBowl") {
+    setSetupPlayers((current) =>
+      current.map((player, playerIndex) =>
+        playerIndex === index ? { ...player, [role]: !player[role] } : player,
+      ),
+    );
   }
 
   function addPlayerField() {
-    setPlayerNames((current) => [...current, `Player ${current.length + 1}`]);
+    setSetupPlayers((current) => [...current, { name: `Player ${current.length + 1}`, canBat: true, canBowl: true }]);
   }
 
   function removePlayerField(index: number) {
-    setPlayerNames((current) => current.filter((_, nameIndex) => nameIndex !== index));
+    setSetupPlayers((current) => current.filter((_, playerIndex) => playerIndex !== index));
   }
 
   function handleCreateSession() {
-    const cleanedNames = playerNames.map((name) => name.trim()).filter(Boolean);
+    const cleanedPlayers = setupPlayers
+      .map((player) => ({
+        name: player.name.trim(),
+        canBat: player.canBat,
+        canBowl: player.canBowl,
+      }))
+      .filter((player) => player.name);
     const parsedOvers = Number(totalOvers);
     const parsedOversPerBatter = Number(oversPerBatter);
+    const battingEligiblePlayers = cleanedPlayers.filter((player) => player.canBat);
+    const bowlingEligiblePlayers = cleanedPlayers.filter((player) => player.canBowl);
 
-    if (cleanedNames.length < 2) {
+    if (cleanedPlayers.length < 2) {
       setSetupError("Add at least two players to start the session.");
+      return;
+    }
+
+    if (battingEligiblePlayers.length === 0) {
+      setSetupError("Mark at least one player as batting-eligible.");
+      return;
+    }
+
+    if (bowlingEligiblePlayers.length < 2) {
+      setSetupError("Mark at least two players as bowling-eligible.");
+      return;
+    }
+
+    if (battingEligiblePlayers.some((player) => bowlingEligiblePlayers.filter((bowler) => bowler.name !== player.name).length === 0)) {
+      setSetupError("Each batting player needs at least one other bowling-eligible player in the session.");
       return;
     }
 
     if (mode === "manual" && (!Number.isFinite(parsedOvers) || parsedOvers <= 0)) {
       setSetupError("Enter a valid number of overs greater than zero.");
+      return;
+    }
+
+    if (mode === "guided_round_robin" && battingEligiblePlayers.length < 2) {
+      setSetupError("Guided round robin needs at least two batting-eligible players.");
       return;
     }
 
@@ -238,7 +290,7 @@ export function CricketPracticeTracker() {
     setSetupError("");
     resetPendingDelivery();
     setSession(
-      createSession(title, cleanedNames, parsedOvers, {
+      createSession(title, cleanedPlayers, parsedOvers, {
         mode,
         oversPerBatter: parsedOversPerBatter,
       }),
@@ -485,8 +537,8 @@ export function CricketPracticeTracker() {
                     </label>
                     <div className="rounded-2xl border border-aqua/20 bg-aqua/10 px-4 py-4 text-sm text-slate-200">
                       <p className="font-semibold text-white">Guided Round Robin Preview</p>
-                      <p className="mt-1">Total overs will be auto-calculated as `players × overs per batter`.</p>
-                      <p className="mt-2 text-aqua">Current preview: {guidedTotalOversPreview} overs</p>
+                      <p className="mt-1">Total overs will be auto-calculated as `batting players × overs per batter`.</p>
+                      <p className="mt-2 text-aqua">Current preview: {guidedTotalOversPreview} overs from {guidedBattersPreview} batting players</p>
                     </div>
                   </>
                 )}
@@ -503,7 +555,7 @@ export function CricketPracticeTracker() {
               </div>
 
               <div className="mt-4 grid gap-3">
-                {playerNames.map((player, index) => (
+                {setupPlayers.map((player, index) => (
                   <div
                     key={`player-input-${index}`}
                     className="flex items-center gap-3 rounded-2xl border border-white/8 bg-[#0d1320] px-3 py-3"
@@ -513,14 +565,36 @@ export function CricketPracticeTracker() {
                     </span>
                     <input
                       className="min-w-0 flex-1 bg-transparent text-base text-white outline-none placeholder:text-slate-500"
-                      value={player}
+                      value={player.name}
                       onChange={(event) => updatePlayerName(index, event.target.value)}
                       placeholder={`Player ${index + 1}`}
                     />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] transition",
+                          player.canBat ? "border-aqua/35 bg-aqua/15 text-aqua" : "border-white/10 bg-white/5 text-slate-400",
+                        )}
+                        onClick={() => toggleSetupPlayerRole(index, "canBat")}
+                        type="button"
+                      >
+                        Bat
+                      </button>
+                      <button
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] transition",
+                          player.canBowl ? "border-glow/35 bg-glow/15 text-glow" : "border-white/10 bg-white/5 text-slate-400",
+                        )}
+                        onClick={() => toggleSetupPlayerRole(index, "canBowl")}
+                        type="button"
+                      >
+                        Bowl
+                      </button>
+                    </div>
                     <button
                       className="rounded-full border border-coral/25 px-3 py-1.5 text-sm text-coral disabled:cursor-not-allowed disabled:opacity-40"
                       onClick={() => removePlayerField(index)}
-                      disabled={playerNames.length <= 2}
+                      disabled={setupPlayers.length <= 2}
                     >
                       Remove
                     </button>
@@ -624,11 +698,23 @@ export function CricketPracticeTracker() {
   const activeBowler = session.players.find((player) => player.id === session.activeBowlerId) ?? null;
   const activeBatter = session.players.find((player) => player.id === session.activeBatterId) ?? null;
   const livePlayers = session.players;
+  const availableBowlerIds = guidedState
+    ? guidedState.eligibleBowlerIds
+    : session.players.filter((player) => playerCanBowl(player) && player.id !== session.activeBatterId).map((player) => player.id);
+  const bowlerSelectablePlayers = session.players.filter(
+    (player) => playerCanBowl(player) && player.id !== session.activeBatterId && availableBowlerIds.includes(player.id),
+  );
+  const batterSelectablePlayers = session.players.filter(
+    (player) => playerCanBat(player) && player.id !== session.activeBowlerId,
+  );
   const guidedCurrentBatter = guidedState
     ? session.players.find((player) => player.id === guidedState.currentBatterId) ?? null
     : null;
   const guidedCurrentBowler = guidedState
     ? session.players.find((player) => player.id === guidedState.currentBowlerId) ?? null
+    : null;
+  const guidedPlannedBowler = guidedState
+    ? session.players.find((player) => player.id === guidedState.plannedBowlerId) ?? null
     : null;
   const guidedNextBatter = guidedState
     ? session.players.find((player) => player.id === guidedState.nextBatterId) ?? null
@@ -695,10 +781,11 @@ export function CricketPracticeTracker() {
               <Waypoints className="h-5 w-5" />
               <p className="font-display text-2xl uppercase tracking-[0.18em] text-white">Guided Round Robin</p>
             </div>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <Stat label="Current Batter" value={guidedCurrentBatter?.name ?? "-"} />
-              <Stat label="Batter Over" value={`${guidedState.currentBatterOver}/${guidedState.oversPerBatter}`} />
-              <Stat label="Planned Bowler" value={guidedCurrentBowler?.name ?? "-"} />
+              <Stat label="Batter Over" value={`${guidedState.currentBatterOver} / ${guidedState.oversPerBatter}`.replace(' / ', '/')} />
+              <Stat label="Current Over Bowler" value={guidedCurrentBowler?.name ?? "-"} />
+              <Stat label="Planned Bowler" value={guidedPlannedBowler?.name ?? "-"} />
               <Stat label="Next Batter" value={guidedNextBatter?.name ?? "Final block"} />
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
@@ -709,7 +796,7 @@ export function CricketPracticeTracker() {
                 Sync To Guided Plan
               </button>
               <p className="self-center text-sm text-slate-400">
-                Batter stays for {guidedState.oversPerBatter} overs while the non-batters rotate automatically over by over.
+                Batter stays for {guidedState.oversPerBatter} overs while the eligible bowling pool rotates automatically over by over. Manual bowler changes stay locked for the current over once scoring starts.
               </p>
             </div>
           </section>
@@ -720,7 +807,7 @@ export function CricketPracticeTracker() {
             <div className="grid gap-5 lg:grid-cols-2">
               <Panel title="Active Bowler" icon={<Target className="h-5 w-5" />}>
                 <PlayerSelector
-                  players={livePlayers}
+                  players={bowlerSelectablePlayers}
                   activePlayerId={session.activeBowlerId}
                   otherActiveId={session.activeBatterId}
                   onSelect={(playerId) => handleSelectPlayers("bowler", playerId)}
@@ -746,7 +833,7 @@ export function CricketPracticeTracker() {
 
               <Panel title="Active Batter" icon={<CircleDot className="h-5 w-5" />}>
                 <PlayerSelector
-                  players={livePlayers}
+                  players={batterSelectablePlayers}
                   activePlayerId={session.activeBatterId}
                   otherActiveId={session.activeBowlerId}
                   onSelect={(playerId) => handleSelectPlayers("batter", playerId)}

@@ -137,6 +137,8 @@ export type BattingOutcome = 0 | 1 | 2 | 3 | 4 | 5 | 6 | "W";
 export interface Player {
   id: string;
   name: string;
+  canBat: boolean;
+  canBowl: boolean;
   battingRuns: number;
   battingDismissals: number;
   battingNetScore: number;
@@ -531,12 +533,18 @@ The application now supports an optional `Guided Round Robin` session mode in ad
 #### Guided Round Robin Rules
 
 - The user defines `overs per batter` during setup.
-- Batting order follows the player order entered during setup.
+- Each player can be configured independently as `Can Bat` and `Can Bowl`.
+- Guided batting order is built only from players with `Can Bat = true`, in the same order they were entered during setup.
 - One batter remains active for the full `overs per batter` block.
-- All non-batting players rotate as bowlers over by over.
+- The bowling pool for a batter block is built from every player with `Can Bowl = true`, excluding the current batter.
+- Bowler rotation must follow the circular full player order around the current batter, not a re-sorted or re-filtered player list.
+- The first bowler for a batter block is the next eligible bowler after that batter in full session order.
+- This keeps later batting blocks stable, so a sequence like `X -> Y -> Z` produces bowling blocks of `Y, Z, Y, Z...`, then `Z, X, Z, X...`, then `X, Y, X, Y...`.
+- In formats where `overs per batter` is an exact multiple of the available bowler count, the incoming next batter should naturally get the previous over free to prepare.
+- Bowler-only players are supported by setting `Can Bat = false` and `Can Bowl = true`.
 - Total session overs are auto-calculated as:
 
-`totalOvers = playerCount * oversPerBatter`
+`totalOvers = battingEligiblePlayerCount * oversPerBatter`
 
 #### Example
 
@@ -551,6 +559,7 @@ For 4 players and `6` overs per batter:
 
 - Manual scoring remains available as a separate session mode.
 - Users can still manually select the active bowler and batter.
+- Manual selectors respect player eligibility, so only batting-eligible players can be chosen as batter and only bowling-eligible players can be chosen as bowler.
 - Manual helper controls such as `Next Bowler`, `Next Batter`, and `Swap Roles` remain available.
 
 ### Role Swap Support
@@ -574,6 +583,13 @@ export interface Session {
   mode: SessionMode;
   roundRobinConfig: RoundRobinConfig | null;
 }
+
+export interface GuidedRoundRobinState {
+  currentBatterId: string | null;
+  currentBowlerId: string | null;
+  plannedBowlerId: string | null;
+  eligibleBowlerIds: string[];
+}
 ```
 
 ## Functional Requirement Updates
@@ -581,14 +597,20 @@ export interface Session {
 ### Setup Flow
 
 - Must allow the user to choose between `Manual Scoring` and `Guided Round Robin`.
+- Must allow each player row to toggle `Bat` and `Bowl` eligibility independently.
 - In guided mode, must allow the user to define `overs per batter`.
-- In guided mode, total session overs must be auto-calculated.
+- In guided mode, total session overs must be auto-calculated from batting-eligible players only.
+- Guided mode must validate that at least two batting-eligible players exist and that every batting-eligible player has at least one other bowling-eligible player available.
 
 ### Guided Live Scoring
 
 - Must display the current guided batter block.
-- Must display the planned bowler for the current over.
-- Must automatically restore the guided over-by-over rotation after recorded deliveries.
+- Must display both the planned bowler for the over and the current over bowler actually in use.
+- Must allow the scorer to manually choose a different bowler from the current eligible bowling pool.
+- Once any ball of an over has been recorded, the chosen bowler for that over must remain locked for the rest of the over.
+- The app may predict the next bowler only after the over is completed.
+- Must automatically restore the guided over-by-over rotation after completed overs.
+- Must preserve the same circular bowler order across batting-block boundaries so the first over of later batters does not flip unexpectedly.
 - Must still allow manual intervention without removing the guided plan.
 
 ### Rotation and Verification
