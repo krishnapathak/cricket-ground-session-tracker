@@ -609,6 +609,7 @@ export interface GuidedRoundRobinState {
 - Must allow the scorer to manually choose a different bowler from the current eligible bowling pool.
 - Once any ball of an over has been recorded, the chosen bowler for that over must remain locked for the rest of the over.
 - The app may predict the next bowler only after the over is completed.
+- If the just-completed over used a manual bowler override, the next predicted bowler in the same batting block must not repeat that same bowler for a consecutive over.
 - Must automatically restore the guided over-by-over rotation after completed overs.
 - Must preserve the same circular bowler order across batting-block boundaries so the first over of later batters does not flip unexpectedly.
 - Must still allow manual intervention without removing the guided plan.

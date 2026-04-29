@@ -149,6 +149,24 @@ function getGuidedOverPlan(session: Pick<Session, "players" | "roundRobinConfig"
   return plan.slice(0, session.totalOvers);
 }
 
+function getNextBowlerFromPool(pool: string[], currentBowlerId: string | null) {
+  if (pool.length === 0) {
+    return null;
+  }
+
+  if (!currentBowlerId) {
+    return pool[0] ?? null;
+  }
+
+  const currentIndex = pool.indexOf(currentBowlerId);
+
+  if (currentIndex === -1) {
+    return pool[0] ?? null;
+  }
+
+  return pool[(currentIndex + 1) % pool.length] ?? null;
+}
+
 function getGuidedAssignmentForDeliveryCount(
   session: Pick<Session, "players" | "roundRobinConfig" | "ballsPerOver" | "totalOvers" | "activeBowlerId" | "currentOverNumber">,
   deliveries: Delivery[],
@@ -161,8 +179,18 @@ function getGuidedAssignmentForDeliveryCount(
 
   const progress = getProgressFromDeliveries(deliveries, session.ballsPerOver);
   const currentPlanEntry = plan[Math.min(Math.max(progress.currentOverNumber - 1, 0), plan.length - 1)] ?? null;
+  const previousPlanEntry = plan[Math.min(Math.max(progress.currentOverNumber - 2, 0), plan.length - 1)] ?? null;
   const currentOverDeliveries = deliveries.filter((delivery) => delivery.overNumber === progress.currentOverNumber);
+  const previousOverDeliveries = deliveries.filter((delivery) => delivery.overNumber === Math.max(progress.currentOverNumber - 1, 0));
   const plannedBowlerId = currentPlanEntry?.bowlerId ?? null;
+  const previousOverBowlerId = previousOverDeliveries[0]?.bowlerId ?? null;
+  const repeatedPlannedBowlerId =
+    currentOverDeliveries.length === 0 &&
+    previousOverBowlerId &&
+    currentPlanEntry?.batterId === previousPlanEntry?.batterId &&
+    previousOverBowlerId === plannedBowlerId
+      ? getNextBowlerFromPool(currentPlanEntry?.eligibleBowlerIds ?? [], previousOverBowlerId)
+      : plannedBowlerId;
   const preservedBowlerId =
     progress.currentOverNumber === session.currentOverNumber &&
     isEligibleBowler(session.players, session.activeBowlerId, currentPlanEntry?.batterId ?? null) &&
@@ -171,9 +199,9 @@ function getGuidedAssignmentForDeliveryCount(
       : null;
 
   return {
-    activeBowlerId: currentOverDeliveries[0]?.bowlerId ?? preservedBowlerId ?? plannedBowlerId,
+    activeBowlerId: currentOverDeliveries[0]?.bowlerId ?? preservedBowlerId ?? repeatedPlannedBowlerId,
     activeBatterId: currentPlanEntry?.batterId ?? null,
-    plannedBowlerId,
+    plannedBowlerId: repeatedPlannedBowlerId,
     eligibleBowlerIds: currentPlanEntry?.eligibleBowlerIds ?? [],
   };
 }
