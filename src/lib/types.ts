@@ -105,6 +105,7 @@ export interface PendingDelivery {
 
 export interface PlayerAnalytics extends Player {
   totalBallsBowled: number;
+  totalBallsFaced: number;
   goodBallPercentage: number;
   bowlerTimeline: string[];
   batterTimeline: string[];

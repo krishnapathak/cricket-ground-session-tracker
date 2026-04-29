@@ -207,6 +207,7 @@ The summary report must calculate the following values for each player.
 ### Bowling Analytics
 
 - Total bowling points
+- Total balls bowled
 - Total good balls
 - Total bad balls
 - Total wickets on good balls
@@ -226,6 +227,7 @@ Where:
 ### Batting Analytics
 
 - Total runs scored
+- Total balls played
 - Total dismissals
 - Net batting score
 
@@ -373,6 +375,9 @@ Example:
 - Must show bowling points
 - Must show conduct penalties
 - Must show bowling quality metrics and wicket breakdowns
+- Must render batting and bowling summaries as separate sections instead of mixing them inside one player card
+- Batting summary should include only batting-eligible players and must show total balls played
+- Bowling summary should include only bowling-eligible players and must show total balls bowled
 
 ## Non-Functional Requirements
 

@@ -171,6 +171,8 @@ export function CricketPracticeTracker() {
   }, [session]);
 
   const analytics = session ? getPlayerAnalytics(session) : [];
+  const battingSummaryPlayers = analytics.filter((player) => player.canBat);
+  const bowlingSummaryPlayers = analytics.filter((player) => player.canBowl);
   const guidedState = session ? getGuidedRoundRobinState(session) : null;
   const completedBalls = session
     ? Math.min(session.deliveries.filter((delivery) => delivery.countsAsLegalBall).length, session.totalOvers * session.ballsPerOver)
@@ -1218,37 +1220,73 @@ export function CricketPracticeTracker() {
             <BarChart3 className="h-5 w-5" />
             <p className="font-display text-2xl uppercase tracking-[0.18em]">Summary Report</p>
           </div>
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {analytics.map((player) => (
-              <div key={player.id} className="rounded-[22px] border border-white/8 bg-ink/70 p-4">
-                <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="font-display text-2xl uppercase tracking-[0.12em] text-white">{player.name}</p>
-                    <p className="text-sm text-slate-400">
-                      Net batting {player.battingNetScore} • Bowling {player.bowlingPoints}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-aqua/25 px-3 py-1 text-sm font-semibold text-aqua">
-                    {player.goodBallPercentage.toFixed(0)}% good balls
-                  </span>
-                </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                  <Stat label="Runs" value={player.battingRuns} />
-                  <Stat label="Dismissals" value={player.battingDismissals} />
-                  <Stat label="Wrong Shots" value={player.wrongShots} />
-                  <Stat label="Ball Beats Faced" value={player.ballBeatsFaced} />
-                  <Stat label="Good balls" value={player.goodBalls + player.wicketsOnGoodBalls} />
-                  <Stat label="Bad balls" value={player.badBalls + player.wicketsOnBadBalls} />
-                  <Stat label="Wide balls" value={player.wideBalls} />
-                  <Stat label="Wickets on good" value={player.wicketsOnGoodBalls} />
-                  <Stat label="Wickets on bad" value={player.wicketsOnBadBalls} />
-                  <Stat label="Ball Beat Bonus" value={player.ballBeatBonuses} />
-                  <Stat label="Arguments" value={player.argumentsCount} />
-                  <Stat label="Session total" value={player.totalSessionScore} emphasis />
+          <div className="mt-5">
+            <div className="flex items-center gap-3 text-aqua">
+              <CircleDot className="h-5 w-5" />
+              <p className="font-display text-xl uppercase tracking-[0.16em] text-white">Batting Summary</p>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              {battingSummaryPlayers.map((player) => (
+                <div key={player.id} className="rounded-[22px] border border-white/8 bg-ink/70 p-4">
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-display text-2xl uppercase tracking-[0.12em] text-white">{player.name}</p>
+                      <p className="text-sm text-slate-400">Net batting {player.battingNetScore}</p>
+                    </div>
+                    <span className="rounded-full border border-aqua/25 px-3 py-1 text-sm font-semibold text-aqua">
+                      {player.totalBallsFaced} balls faced
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <Stat label="Runs" value={player.battingRuns} />
+                    <Stat label="Balls Played" value={player.totalBallsFaced} />
+                    <Stat label="Dismissals" value={player.battingDismissals} />
+                    <Stat label="Wrong Shots" value={player.wrongShots} />
+                    <Stat label="Ball Beats Faced" value={player.ballBeatsFaced} />
+                    <Stat label="Arguments" value={player.argumentsCount} />
+                    <Stat label="Net Batting" value={player.battingNetScore} emphasis />
+                    <Stat label="Session Total" value={player.totalSessionScore} />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8">
+            <div className="flex items-center gap-3 text-glow">
+              <Target className="h-5 w-5" />
+              <p className="font-display text-xl uppercase tracking-[0.16em] text-white">Bowling Summary</p>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              {bowlingSummaryPlayers.map((player) => (
+                <div key={player.id} className="rounded-[22px] border border-white/8 bg-ink/70 p-4">
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-display text-2xl uppercase tracking-[0.12em] text-white">{player.name}</p>
+                      <p className="text-sm text-slate-400">Bowling {player.bowlingPoints}</p>
+                    </div>
+                    <span className="rounded-full border border-aqua/25 px-3 py-1 text-sm font-semibold text-aqua">
+                      {player.goodBallPercentage.toFixed(0)}% good balls
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <Stat label="Balls Bowled" value={player.totalBallsBowled} />
+                    <Stat label="Good Balls" value={player.goodBalls + player.wicketsOnGoodBalls} />
+                    <Stat label="Bad Balls" value={player.badBalls + player.wicketsOnBadBalls} />
+                    <Stat label="Wide Balls" value={player.wideBalls} />
+                    <Stat label="Wkts on Good" value={player.wicketsOnGoodBalls} />
+                    <Stat label="Wkts on Bad" value={player.wicketsOnBadBalls} />
+                    <Stat label="Ball Beat Bonus" value={player.ballBeatBonuses} />
+                    <Stat label="Arguments" value={player.argumentsCount} />
+                    <Stat label="Bowling Points" value={player.bowlingPoints} emphasis />
+                    <Stat label="Session Total" value={player.totalSessionScore} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       </div>

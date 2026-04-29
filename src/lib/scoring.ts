@@ -775,6 +775,9 @@ export function getPlayerAnalytics(session: Session): PlayerAnalytics[] {
   const enriched = session.players.map((player) => {
     const totalBallsBowled =
       player.goodBalls + player.badBalls + player.wicketsOnGoodBalls + player.wicketsOnBadBalls;
+    const totalBallsFaced = session.deliveries.filter(
+      (delivery) => delivery.batterId === player.id && delivery.countsAsLegalBall,
+    ).length;
     const goodBallDeliveries = player.goodBalls + player.wicketsOnGoodBalls;
     const bowlerTimeline = session.deliveries
       .filter((delivery) => delivery.bowlerId === player.id)
@@ -786,6 +789,7 @@ export function getPlayerAnalytics(session: Session): PlayerAnalytics[] {
     return {
       ...player,
       totalBallsBowled,
+      totalBallsFaced,
       goodBallPercentage: totalBallsBowled === 0 ? 0 : (goodBallDeliveries / totalBallsBowled) * 100,
       bowlerTimeline,
       batterTimeline,
